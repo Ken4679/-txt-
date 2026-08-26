@@ -77,3 +77,20 @@ print("hello")
 ```
 
 不要让 AI 使用 `...` 或“保持其余代码不变”，否则恢复出来的文件会不完整。
+
+# ZipToTxt 3.1 security + UI update
+
+替换 `main.py` 和 `core.py`，并用 `.github/workflows/build.yml` 替换工作流。
+
+主要变化：
+- ZIP Bomb 防护：大小、条目数、单文件大小、总解压大小限制。
+- ZIP 路径穿越与符号链接拒绝。
+- AI 输入/输出大小和文件数量限制。
+- AI 文件路径严格要求 Markdown code fence。
+- `.git`、`.env`、密钥文件默认保护。
+- 写入前检查符号链接路径。
+- 临时补丁目录使用 `tempfile.mkdtemp()`。
+- 修复拖拽文件解析 fallback。
+- 默认输出目录不再错误地落到当前目录。
+- UI 重做为侧边栏 + 卡片 + 大型拖拽区 + 编辑器 + 操作面板。
+- CI 将普通构建权限降为 `contents: read`，Release job 单独申请 `contents: write`。
