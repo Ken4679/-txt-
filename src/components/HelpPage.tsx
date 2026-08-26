@@ -38,11 +38,35 @@ export const HelpPage: React.FC = () => {
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Title */}
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">使用说明</h2>
-        <p className="text-sm text-slate-500 mt-1">
-          ZipToTxt 是专为“GitHub ZIP → 单 TXT → AI 修改代码 → 补丁 ZIP”打造的工作台。
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 text-white shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg border border-indigo-400/30 shrink-0 bg-slate-950 flex items-center justify-center">
+            <img
+              src="/app-icon.svg"
+              alt="ZipToTxt App Icon"
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold tracking-tight text-white">ZipToTxt · AI Code Workspace</h2>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/20 font-mono">v3.1</span>
+            </div>
+            <p className="text-xs text-slate-300 mt-1 leading-relaxed max-w-2xl">
+              专为大模型上下文吞吐与工程自动化设计的“代码仓库压缩包 ⇄ 结构化 TXT 上下文 ⇄ AI 生产级代码补丁”双向工作台。
+            </p>
+          </div>
+        </div>
+        <div className="shrink-0 flex items-center gap-2">
+          <a
+            href="/app-icon.svg"
+            download="ziptotxt-icon.svg"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
+          >
+            下载图标 SVG
+          </a>
+        </div>
       </div>
 
       {/* 4 Steps Grid */}

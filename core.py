@@ -51,6 +51,82 @@ TEXT_FILENAMES = {
     'Procfile', 'CNAME', 'docker-compose.yml', 'docker-compose.yaml', 'nginx.conf'
 }
 
+AI_PRIMARY_PROMPT = """I am sharing a complete source-code repository exported into a TXT file.
+
+Please implement this requirement:
+[DESCRIBE YOUR REQUIREMENT HERE]
+
+Rules:
+1. Preserve the existing architecture unless necessary.
+2. Only return files you modified or created.
+3. For every changed file use exactly:
+### FILE: relative/path/to/file.ext
+```language
+complete file content
+```
+4. Always return complete file content. Never use placeholders (e.g. do not use "...keep existing code...").
+5. Preserve repository-relative paths.
+6. If a file is long, continue in multiple messages without omitting content."""
+
+AI_CONTINUE_PROMPT = """Continue exactly where your previous response stopped.
+Do not restart completed files. Do not summarize. Output remaining complete source code only.
+Use:
+### FILE: relative/path/to/file.ext
+```language
+complete file content
+```"""
+
+AI_AUDIT_PROMPT_CN = """你是一名兼具【顶级软件架构师】、【首席安全审计专家】与【生产交付负责人】三重身份的技术权威。你正在审计一份通过 TXT 格式全量导出的代码仓库。
+该项目为 AI 辅助敏捷编程（Vibe Coding）产物，尽管功能逻辑貌似闭环，但由于大模型概率采样特性，极大概率潜藏【架构坏味道】、【静默异常】、【资源泄漏】与【致命安全漏洞】。
+
+你的唯一使命：以严苛的【工业级生产上线（Zero-Bug & High-Reliability）】标准进行端到端全方位深度审计，并针对所有瑕疵直接输出【100% 完整、可直接打补丁替换上线的生产级源代码】。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【审计维度与检查矩阵】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 架构严谨性与高内聚低耦合 (Architecture & Code Smells)：
+   - 依赖边界：排查模块交叉依赖、循环引用、上帝类/过度膨胀函数，检查单一职责原则（SRP）。
+   - 数据流与状态：排查竞态条件（Race Conditions）、状态失真、未清理的全局副作用、不可达死代码。
+2. 功能完备性与防御性编码 (Completeness & Edge Cases)：
+   - 异常处理：彻底排查静默吞异常（空的 catch 块）、未捕获的异步 Promise rejection、未校验的 API 返回格式。
+   - 边界极限：排查 Null/Undefined 解构崩溃、空数组/超大集合、网络断连重试、并发请求幂等性。
+   - 资源管理：排查未释放的定时器（setInterval）、未注销的 EventListener、未断开的 WebSockets/DB 连接池及内存堆积。
+3. 生产级安全加固 (Security Hardening & OWASP Top 10)：
+   - 注入防御：SQL注入、命令执行（exec/eval/spawn）、XSS、SSRF、模版注入。
+   - 路径与文件安全：Zip Slip 路径逃逸、绝对路径覆盖、危险后缀上传、ReDoS 正则拒绝服务。
+   - 凭据与鉴权：硬编码 Secret/Token/Private Key、越权漏洞（IDOR）、缺失 CORS/CSP 与安全 Header。
+4. 生产可用性与可观测性 (Resilience & Observability)：
+   - 超时与熔断保护、高频请求防抖节流（Debounce/Throttle）、关键链路结构化日志输出。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【输出格式严格规范】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+你必须按以下四部分严格结构化输出：
+
+### 01. 生产就绪度判定 (Production Readiness Verdict)
+- 给出明确结论：【可直接上线】 / 【需修复后上线 (Conditional)】 / 【严禁上线 (Blocked)】
+- 给出 1-2 句核心理由。
+
+### 02. 严重缺陷矩阵 (Critical Defect Matrix)
+按优先级列出（P0 致命阻断, P1 高风险, P2 中等瑕疵）：
+- [缺陷级别] 文件路径:函数名
+  - 根因分析：...
+  - 潜在危害与触发场景：...
+  - 修复策略：...
+
+### 03. 可直接投产的完整代码修复 (Production-Ready Code Patch)
+★ 黄金法则：针对每一个需要修改的文件，输出 100% 完整的源代码！绝对严禁使用 “// ... 保留其他原代码” 或省略号！
+★ 格式必须严格遵循 ZipToTxt 解析器标准：
+### FILE: 文件的相对路径
+```编程语言
+// 完整的、经过工业级加固后的源码
+```
+
+### 04. 部署与冒烟测试清单 (Smoke Test Checklist)
+- 提供 3-5 步清晰的验证步骤或单元测试建议，确保修复后无任何功能破坏或回归。"""
+
+AI_REVIEW_PROMPT = AI_AUDIT_PROMPT_CN
+
 def human_size(value: int) -> str:
     size = float(value)
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:

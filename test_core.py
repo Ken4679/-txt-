@@ -6,7 +6,11 @@ from core import (
     parse_ai_blocks,
     is_sensitive_path,
     is_text_file,
-    human_size
+    human_size,
+    AI_PRIMARY_PROMPT,
+    AI_CONTINUE_PROMPT,
+    AI_REVIEW_PROMPT,
+    AI_AUDIT_PROMPT_CN
 )
 
 def run_tests():

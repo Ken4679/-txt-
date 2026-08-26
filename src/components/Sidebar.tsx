@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivePage } from '../types';
-import { Archive, FileCode, HelpCircle, ShieldCheck, Cpu } from 'lucide-react';
+import { Archive, FileCode, HelpCircle, ShieldCheck } from 'lucide-react';
 
 interface SidebarProps {
   activePage: ActivePage;
@@ -40,8 +40,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onPageChange }) =>
       {/* App Header */}
       <div className="px-6 pt-7 pb-6 border-b border-slate-800/80">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
-            <Cpu className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-indigo-600/30 border border-indigo-500/40 shrink-0 bg-slate-950 flex items-center justify-center">
+            <img
+              src="/app-icon.svg"
+              alt="ZipToTxt Logo"
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <div>
             <h1 className="text-lg font-bold text-white tracking-tight leading-tight">ZipToTxt</h1>
