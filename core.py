@@ -393,20 +393,23 @@ def assemble_prompt(prompt_template: str, user_requirement: str, repo_txt: str) 
         prompt_template = re.sub(r'\[在此详细描述您的业务需求.*?\]', user_requirement, prompt_template, flags=re.I)
     return prompt_template + "\n\n" + repo_txt
 
-def parse_ai_output(markdown_text: str) -> Dict[str, Dict[str, str]]:
-    blocks = re.findall(r'###\s*FILE:\s*(.+?)\n```(?:\w+)?\n(.*?)```', markdown_text, re.DOTALL)
+def parse_ai_output(markdown_text: str) -> Dict[str, str]:
+    """
+    解析 AI 输出中的文件块，返回字典（键为文件路径，值为文件内容）。
+    """
+    blocks = re.findall(r'###\s*FILE:\s*(.+?)\s*\n```(?:\w+)?\s*\n(.*?)```', markdown_text, re.DOTALL)
     files = {}
     for path, content in blocks:
         path = normalize_ai_path(path.strip())
         files[path] = content.strip()
-    return {'files': files}
+    return files
 
 def parse_ai_blocks(markdown_text: str) -> List[Dict[str, str]]:
     """
     解析 AI 输出中的文件块，返回列表形式。
     每个元素为 {'path': 'relative/path', 'content': 'file content'}
     """
-    blocks = re.findall(r'###\s*FILE:\s*(.+?)\n```(?:\w+)?\n(.*?)```', markdown_text, re.DOTALL)
+    blocks = re.findall(r'###\s*FILE:\s*(.+?)\s*\n```(?:\w+)?\s*\n(.*?)```', markdown_text, re.DOTALL)
     result = []
     for path, content in blocks:
         path = normalize_ai_path(path.strip())
