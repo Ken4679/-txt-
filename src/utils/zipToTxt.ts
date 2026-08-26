@@ -143,6 +143,72 @@ export function buildDirectoryTree(paths: string[], rootName: string): string[] 
   return lines;
 }
 
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  return Math.floor(text.length / 3.8) + 1;
+}
+
+export function getFileLanguage(filePath: string): string {
+  const fileName = filePath.split('/').pop() || '';
+  const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() || '' : '';
+  
+  const map: Record<string, string> = {
+    js: 'javascript',
+    jsx: 'javascript',
+    ts: 'typescript',
+    tsx: 'typescript',
+    py: 'python',
+    pyw: 'python',
+    json: 'json',
+    jsonc: 'json',
+    html: 'html',
+    htm: 'html',
+    css: 'css',
+    scss: 'scss',
+    sass: 'sass',
+    less: 'less',
+    md: 'markdown',
+    markdown: 'markdown',
+    yml: 'yaml',
+    yaml: 'yaml',
+    sh: 'bash',
+    bash: 'bash',
+    zsh: 'bash',
+    rs: 'rust',
+    go: 'go',
+    java: 'java',
+    kt: 'kotlin',
+    kts: 'kotlin',
+    c: 'c',
+    h: 'c',
+    cpp: 'cpp',
+    hpp: 'cpp',
+    cs: 'csharp',
+    php: 'php',
+    rb: 'ruby',
+    sql: 'sql',
+    xml: 'xml',
+    vue: 'vue',
+    svelte: 'svelte',
+    toml: 'toml',
+    ini: 'ini',
+  };
+
+  return map[ext] || ext || 'text';
+}
+
+export interface ProcessZipResult {
+  txtContent: string;
+  asciiTree: string;
+  entries: ZipFileEntry[];
+  fileCount: number;
+  textCount: number;
+  binaryCount: number;
+  totalLines: number;
+  estimatedTokens: number;
+  ignoredCount: number;
+}
+
 export interface ProcessZipOptions {
   includeBinary: boolean;
   filterIgnoredFolders?: boolean;
@@ -153,7 +219,7 @@ export interface ProcessZipOptions {
 export async function processZipFile(
   file: File,
   options: ProcessZipOptions
-): Promise<{ txtContent: string; entries: ZipFileEntry[]; fileCount: number; ignoredCount: number }> {
+): Promise<ProcessZipResult> {
   const { includeBinary, filterIgnoredFolders = true, ignoredFolderNames = [], onProgress } = options;
 
   if (file.size > MAX_ZIP_BYTES) {
@@ -219,6 +285,9 @@ export async function processZipFile(
 
   const totalFiles = fileObjects.length;
   const entries: ZipFileEntry[] = [];
+  let totalLines = 0;
+  let textCount = 0;
+  let binaryCount = 0;
 
   // Sort files predictably
   fileObjects.sort((a, b) => {
@@ -256,11 +325,15 @@ export async function processZipFile(
     let base64Content: string | undefined;
 
     if (isBinary) {
+      binaryCount++;
       if (includeBinary) {
         base64Content = arrayBufferToBase64(contentBuffer);
       }
     } else {
+      textCount++;
       textContent = decodeText(contentBuffer);
+      const linesInFile = textContent.split(/\r\n|\r|\n/).length;
+      totalLines += linesInFile;
     }
 
     entries.push({
@@ -279,69 +352,64 @@ export async function processZipFile(
     entries.map(e => e.relativePath),
     rootDisplayName
   );
+  const asciiTree = treeLines.join('\n');
 
-  // Assemble TXT export content
-  const header = [
-    '='.repeat(100),
-    'REPOSITORY EXPORT',
-    '='.repeat(100),
-    '',
-    `SOURCE ZIP: ${file.name}`,
-    `FILE COUNT: ${entries.length}`,
-    `BINARY MODE: ${includeBinary ? 'BASE64 INCLUDED' : 'METADATA ONLY'}`,
-    '',
-    '='.repeat(100),
-    'DIRECTORY STRUCTURE',
-    '='.repeat(100),
-    '',
-    treeLines.join('\n'),
-    '',
-    '',
-    '='.repeat(100),
-    'FILE CONTENTS',
-    '='.repeat(100),
-  ].join('\n');
-
-  const fileSections: string[] = [];
+  // Assemble TXT export content matching core.py standard format
+  const txtParts: string[] = [];
+  txtParts.push('================================================================================');
+  txtParts.push('ZIPIFY REPOSITORY CONTEXT EXPORT');
+  txtParts.push('================================================================================\n');
+  txtParts.push('DIRECTORY STRUCTURE:');
+  txtParts.push(asciiTree);
+  txtParts.push('\n================================================================================');
+  txtParts.push('REPOSITORY SOURCE CODE FILES');
+  txtParts.push('================================================================================\n');
 
   for (const entry of entries) {
-    const secHeader = [
-      '',
-      '='.repeat(100),
-      `FILE: ${entry.relativePath}`,
-      `SIZE: ${humanSize(entry.size)} (${entry.size} bytes)`,
-      `SHA-256: ${entry.sha256}`,
-    ];
-
     if (entry.isBinary) {
-      secHeader.push('TYPE: BINARY');
       if (includeBinary && entry.base64) {
-        secHeader.push('ENCODING: BASE64');
-        secHeader.push('='.repeat(100));
-        // Chunk Base64 by 76 chars
-        const chunks: string[] = [];
-        for (let idx = 0; idx < entry.base64.length; idx += 76) {
-          chunks.push(entry.base64.slice(idx, idx + 76));
-        }
-        secHeader.push(chunks.join('\n'));
+        txtParts.push(`### FILE: ${entry.relativePath} [BASE64_BINARY]`);
+        txtParts.push('```base64');
+        txtParts.push(entry.base64);
+        txtParts.push('```\n');
       } else {
-        secHeader.push('CONTENT: NOT EMBEDDED (metadata only)');
+        txtParts.push(`### FILE: ${entry.relativePath} [BINARY FILE: ${humanSize(entry.size)}, SHA-256: ${entry.sha256}]\n`);
       }
     } else {
-      secHeader.push('TYPE: TEXT');
-      secHeader.push('='.repeat(100));
-      secHeader.push(entry.content ?? '');
+      const lang = getFileLanguage(entry.relativePath);
+      txtParts.push(`### FILE: ${entry.relativePath}`);
+      txtParts.push(`\`\`\`${lang}`);
+      txtParts.push(entry.content ?? '');
+      txtParts.push('```\n');
     }
-
-    fileSections.push(secHeader.join('\n'));
   }
 
-  const txtContent = `${header}\n${fileSections.join('\n')}\n`;
+  const txtContent = txtParts.join('\n');
+  const estimatedTokens = estimateTokens(txtContent);
 
   return {
     txtContent,
+    asciiTree,
     entries,
     fileCount: entries.length,
+    textCount,
+    binaryCount,
+    totalLines,
+    estimatedTokens,
     ignoredCount,
   };
+}
+
+export function assemblePromptWithContext(
+  promptTemplate: string,
+  userRequirement: string,
+  repoContextTxt: string
+): string {
+  let prompt = promptTemplate;
+  if (userRequirement && userRequirement.trim()) {
+    prompt = prompt.replace(/\[DESCRIBE YOUR REQUIREMENT HERE\]/i, userRequirement.trim());
+    prompt = prompt.replace(/\[在此详细描述您的业务需求.*?\]/i, userRequirement.trim());
+  }
+
+  return `${prompt}\n\n${repoContextTxt}`;
 }

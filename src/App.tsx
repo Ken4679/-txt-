@@ -5,7 +5,7 @@ import { ImportPage } from './components/ImportPage';
 import { SecurityAuditPage } from './components/SecurityAuditPage';
 import { HelpPage } from './components/HelpPage';
 import { ActivePage, ProcessStatus } from './types';
-import { CheckCircle, AlertCircle, Info, X } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 interface Toast {
   id: number;
@@ -39,12 +39,12 @@ export function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#f8fafc]">
-      {/* Left Sidebar */}
+    <div className="flex h-screen w-screen overflow-hidden bg-[#f8fafc] text-slate-800">
+      {/* Left Light Sidebar */}
       <Sidebar activePage={activePage} onPageChange={setActivePage} />
 
       {/* Main Workspace Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f8fafc]">
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto px-8 py-7 min-w-0">
           {activePage === 'export' && (
@@ -63,8 +63,8 @@ export function App() {
           {activePage === 'help' && <HelpPage />}
         </main>
 
-        {/* Global Bottom Status Bar */}
-        <footer className="h-11 bg-white border-t border-slate-200/90 px-6 flex items-center justify-between text-xs text-slate-600 flex-shrink-0">
+        {/* Global Bottom Status Bar (Light Theme) */}
+        <footer className="h-11 bg-white border-t border-slate-200 px-6 flex items-center justify-between text-xs text-slate-600 flex-shrink-0 shadow-2xs">
           <div className="flex items-center gap-4 flex-1 mr-8">
             <div className="w-48 bg-slate-100 rounded-full h-1.5 overflow-hidden">
               <div
@@ -79,37 +79,37 @@ export function App() {
 
           <div className="flex items-center gap-2 font-medium">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="truncate">{status.message}</span>
+            <span className="truncate text-slate-700">{status.message}</span>
           </div>
         </footer>
       </div>
 
-      {/* Floating Toast Notification Stack */}
+      {/* Floating Toast Notification Stack (Light Theme) */}
       <div className="fixed bottom-14 right-6 z-50 flex flex-col gap-2 pointer-events-none">
         {toasts.map(toast => (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-xs font-medium transition-all transform translate-y-0 ${
+            className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-xs font-medium transition-all transform translate-y-0 ${
               toast.type === 'success'
-                ? 'bg-slate-900 text-white border-slate-800'
+                ? 'bg-white text-slate-800 border-emerald-300 shadow-emerald-500/10'
                 : toast.type === 'error'
-                ? 'bg-rose-900 text-white border-rose-800'
-                : 'bg-indigo-900 text-white border-indigo-800'
+                ? 'bg-white text-slate-800 border-rose-300 shadow-rose-500/10'
+                : 'bg-white text-slate-800 border-indigo-300 shadow-indigo-500/10'
             }`}
           >
             {toast.type === 'success' && (
-              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             )}
             {toast.type === 'error' && (
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             )}
             {toast.type === 'info' && (
-              <Info className="w-4 h-4 text-indigo-400 shrink-0" />
+              <Info className="w-4 h-4 text-indigo-600 shrink-0" />
             )}
             <span className="max-w-xs">{toast.message}</span>
             <button
               onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
-              className="text-slate-400 hover:text-white p-0.5 ml-1 cursor-pointer"
+              className="text-slate-400 hover:text-slate-600 p-0.5 ml-1 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>

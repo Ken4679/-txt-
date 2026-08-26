@@ -1,60 +1,74 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ShieldCheck,
   Zap,
   Code,
   FolderArchive,
   Sparkles,
+  Copy,
+  CheckCheck,
+  Check,
 } from 'lucide-react';
+import { DEFAULT_PROMPTS } from '../utils/constants';
 
 export const HelpPage: React.FC = () => {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopyPrompt = async (text: string, key: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2500);
+  };
+
   const steps = [
     {
       step: '01',
-      title: '导出仓库 (ZIP → TXT)',
-      desc: '下载 GitHub 仓库代码 ZIP 包（Code → Download ZIP），拖入本工具中生成单一 TXT 文件。该 TXT 包含清晰的文件目录树、每份源码文本内容以及 SHA-256 校验哈希。可将此 TXT 直接发送给任何 AI 大模型。',
+      title: '正向导出 (ZIP → TXT 上下文)',
+      desc: '下载 GitHub 仓库代码 ZIP 包（Code → Download ZIP），拖入本工具中生成单一 TXT 文件。包含目录树、源码文本与 Token 估算。可直接发送给任意大模型。',
       icon: <FolderArchive className="w-5 h-5 text-indigo-600" />,
     },
     {
       step: '02',
-      title: 'AI 编码与修改',
-      desc: '在与 AI 对话时配合使用本工作台提供的“AI 主 Prompt”。AI 会按照指定格式输出修改或新建的代码块，无需手工一个个复制粘贴到各文件中。',
+      title: '装配 Prompt 规范交互',
+      desc: '在提问时附带工作台提供的“AI 需求实现 Prompt”或“生产级审计 Prompt”。AI 会按照标准文件块格式返回修改或新增的代码，杜绝省略号截断。',
       icon: <Sparkles className="w-5 h-5 text-emerald-600" />,
     },
     {
       step: '03',
-      title: '应用 AI 修改 (TXT → Patch ZIP)',
-      desc: '将 AI 输出的回答全文粘贴到“应用 AI 修改”页面中，系统将自动识别出所有文件代码块并剔除废话，一键打包生成只包含修改文件的补丁 ZIP 压缩包。',
+      title: '反向打补丁 (Markdown → Patch ZIP)',
+      desc: '将 AI 输出的回答全文粘贴到“应用 AI 修改”页面中，系统自动高容错识别各个代码块，一键打包生成只包含修改文件的纯净 patch.zip。',
       icon: <Zap className="w-5 h-5 text-amber-600" />,
     },
     {
       step: '04',
-      title: '内置安全防御体系',
-      desc: '支持自动路径穿越防护（拦截 .. 与绝对路径）、符号链接拦截、ZIP Bomb 膨胀防护与敏感文件保护（.git、.env、秘钥证书文件默认禁止覆盖）。',
+      title: '全流程安全防护与审计',
+      desc: '内置 Zip Slip 路径穿越防御、符号链接拦截、ZIP Bomb 熔断保护与敏感文件过滤（.git、.env、私钥证书默认阻止覆盖）。',
       icon: <ShieldCheck className="w-5 h-5 text-blue-600" />,
     },
   ];
 
   return (
     <div className="space-y-6 max-w-5xl">
-      {/* Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 text-white shadow-sm">
+      {/* Brand Header Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-white border border-slate-200 text-slate-800 shadow-xs">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg border border-indigo-400/40 shrink-0 bg-slate-950 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-sm border border-indigo-100 shrink-0 bg-white flex items-center justify-center p-1">
             <img
               src="/app-icon.png"
               alt="ZipToTxt App Icon"
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
             />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold tracking-tight text-white">ZipToTxt · AI Code Workspace</h2>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/20 font-mono">v3.1</span>
+              <h2 className="text-xl font-bold tracking-tight text-slate-900">ZipToTxt · AI Code Workspace</h2>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono font-semibold">
+                v3.1 Light Edition
+              </span>
             </div>
-            <p className="text-xs text-slate-300 mt-1 leading-relaxed max-w-2xl">
-              专为大模型上下文吞吐与工程自动化设计的“代码仓库压缩包 ⇄ 结构化 TXT 上下文 ⇄ AI 生产级代码补丁”双向工作台。
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-2xl">
+              专为大模型上下文吞吐与工程自动化设计的「代码仓库压缩包 ⇄ 结构化 TXT ⇄ AI 代码补丁」双向工作台。
             </p>
           </div>
         </div>
@@ -62,14 +76,14 @@ export const HelpPage: React.FC = () => {
           <a
             href="/app-icon.ico"
             download="app.ico"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-colors"
           >
             下载 Windows .ICO
           </a>
           <a
             href="/app-icon.png"
             download="app-icon.png"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition-colors"
           >
             下载高清 PNG
           </a>
@@ -102,44 +116,63 @@ export const HelpPage: React.FC = () => {
       </div>
 
       {/* AI Output Specification Guide */}
-      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs space-y-3">
-        <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-          <Code className="w-4 h-4 text-indigo-600" />
-          AI 标准返回格式规范
-        </h3>
+      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+            <Code className="w-4 h-4 text-indigo-600" />
+            AI 标准返回格式规范 (Standard Markdown Fence Format)
+          </h3>
+          <button
+            onClick={() => handleCopyPrompt(DEFAULT_PROMPTS.primary, 'guide_primary')}
+            className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-white text-slate-700 flex items-center gap-1.5 cursor-pointer"
+          >
+            {copiedKey === 'guide_primary' ? (
+              <>
+                <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                已复制 Prompt
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5 text-slate-400" />
+                复制主 Prompt 模板
+              </>
+            )}
+          </button>
+        </div>
+
         <p className="text-xs text-slate-500">
-          为了使工作台能够正确识别出各个文件，AI 需要输出以下格式的文件头与 Markdown 代码围栏：
+          为了使工作台能够 100% 精确提取改动文件，AI 输出需遵循如下格式：
         </p>
 
-        <div className="p-4 rounded-xl bg-slate-900 text-slate-100 font-mono text-xs overflow-x-auto leading-relaxed">
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 font-mono text-xs overflow-x-auto leading-relaxed">
           <div className="text-slate-400 mb-1">// 文件一：Python 源码示例</div>
-          <span className="text-emerald-400">### FILE: src/main.py</span>
+          <span className="text-indigo-600 font-bold">### FILE: src/main.py</span>
           <br />
-          <span className="text-indigo-400">```python</span>
+          <span className="text-slate-500">```python</span>
           <br />
-          <span className="text-slate-200">print("hello world")</span>
+          <span className="text-slate-800">print("hello world")</span>
           <br />
-          <span className="text-indigo-400">```</span>
+          <span className="text-slate-500">```</span>
           <br />
           <br />
           <div className="text-slate-400 mb-1">// 文件二：配置文件示例</div>
-          <span className="text-emerald-400">### FILE: config/settings.json</span>
+          <span className="text-indigo-600 font-bold">### FILE: config/settings.json</span>
           <br />
-          <span className="text-indigo-400">```json</span>
+          <span className="text-slate-500">```json</span>
           <br />
-          <span className="text-slate-200">&#123;</span>
+          <span className="text-slate-800">&#123;</span>
           <br />
-          <span className="text-slate-200">  "enabled": true</span>
+          <span className="text-slate-800">  "enabled": true</span>
           <br />
-          <span className="text-slate-200">&#125;</span>
+          <span className="text-slate-800">&#125;</span>
           <br />
-          <span className="text-indigo-400">```</span>
+          <span className="text-slate-500">```</span>
         </div>
 
-        <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
-          <span className="font-bold">⚠️ 提示：</span>
+        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+          <span className="font-bold shrink-0">⚠️ 提示：</span>
           <span>
-            请勿让 AI 使用“...代码保持不变...”或缩写，要求 AI 必须输出修改后文件的完整代码，以确保生成的补丁准确无误。
+            请要求 AI 始终输出修改后文件的完整可运行源码，禁止使用“...代码保持不变...”等省略符号。
           </span>
         </div>
       </div>

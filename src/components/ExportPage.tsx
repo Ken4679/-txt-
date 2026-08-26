@@ -17,8 +17,12 @@ import {
   Code,
   Edit3,
   RotateCcw,
+  CheckCheck,
+  Cpu,
+  MessageSquareCode,
+  Zap,
 } from 'lucide-react';
-import { processZipFile } from '../utils/zipToTxt';
+import { processZipFile, assemblePromptWithContext } from '../utils/zipToTxt';
 import {
   DEFAULT_PROMPTS,
   COMMON_IGNORE_FOLDERS,
@@ -31,7 +35,7 @@ interface ExportPageProps {
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-const STORAGE_KEY_PROMPTS = 'ziptotxt_custom_prompts_v1';
+const STORAGE_KEY_PROMPTS = 'ziptotxt_custom_prompts_v2';
 
 export const ExportPage: React.FC<ExportPageProps> = ({
   onStatusChange,
@@ -45,12 +49,21 @@ export const ExportPage: React.FC<ExportPageProps> = ({
   const [currentFileProcessing, setCurrentFileProcessing] = useState<string>('');
 
   const [generatedTxt, setGeneratedTxt] = useState<string | null>(null);
+  const [asciiTree, setAsciiTree] = useState<string>('');
   const [fileEntries, setFileEntries] = useState<ZipFileEntry[]>([]);
+  const [totalLines, setTotalLines] = useState<number>(0);
+  const [estimatedTokens, setEstimatedTokens] = useState<number>(0);
   const [ignoredCount, setIgnoredCount] = useState<number>(0);
-  const [copiedType, setCopiedType] = useState<string | null>(null);
+
+  // Copy Feedback state tracking with key identifiers
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [treeSearchQuery, setTreeSearchQuery] = useState<string>('');
   const [previewEntry, setPreviewEntry] = useState<ZipFileEntry | null>(null);
+
+  // Active Prompt Persona selection
+  const [activePromptKey, setActivePromptKey] = useState<'primary' | 'continue' | 'audit_cn' | 'audit_en'>('primary');
+  const [userRequirementText, setUserRequirementText] = useState<string>('');
 
   // Custom Prompts State with LocalStorage persistence
   const [customPrompts, setCustomPrompts] = useState<{ [key: string]: string }>(() => {
@@ -79,6 +92,13 @@ export const ExportPage: React.FC<ExportPageProps> = ({
       // ignore
     }
   }, [customPrompts]);
+
+  const setCopyFeedback = (key: string) => {
+    setCopiedKey(key);
+    setTimeout(() => {
+      setCopiedKey(prev => (prev === key ? null : prev));
+    }, 2500);
+  };
 
   const handleOpenPromptEditor = (key: string, title: string) => {
     setEditingPromptKey(key);
@@ -110,7 +130,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     if (editingPromptKey === key) {
       setEditingPromptDraft(defaultVal);
     }
-    onShowToast(`已将“${title}”恢复为出厂默认规范`, 'info');
+    onShowToast(`已将“${title}”恢复为出厂标准规范`, 'info');
   };
 
   const handleResetAllPrompts = () => {
@@ -130,9 +150,10 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     }
     setSelectedFile(file);
     setGeneratedTxt(null);
+    setAsciiTree('');
     setFileEntries([]);
     setProgress(0);
-    onStatusChange(`已选择 · ${file.name}`, 0);
+    onStatusChange(`已载入 · ${file.name} (${humanSize(file.size)})`, 0);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -160,7 +181,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
 
     setIsProcessing(true);
     setProgress(0);
-    onStatusChange('正在安全检查并解压 ZIP…', 5);
+    onStatusChange('正在进行安全审计并解压 ZIP…', 5);
 
     try {
       const result = await processZipFile(selectedFile, {
@@ -176,27 +197,28 @@ export const ExportPage: React.FC<ExportPageProps> = ({
       });
 
       setGeneratedTxt(result.txtContent);
+      setAsciiTree(result.asciiTree);
       setFileEntries(result.entries);
+      setTotalLines(result.totalLines);
+      setEstimatedTokens(result.estimatedTokens);
       setIgnoredCount(result.ignoredCount);
       setIsProcessing(false);
       setProgress(100);
-      onStatusChange(`导出完成 · 共 ${result.fileCount} 个有效文件`, 100);
+      onStatusChange(`导出就绪 · 共 ${result.fileCount} 个有效文件 (~${result.estimatedTokens.toLocaleString()} Tokens)`, 100);
       onShowToast(
-        `成功生成 TXT 导出（包含 ${result.fileCount} 个源码文件${
-          result.ignoredCount > 0 ? `，已过滤 ${result.ignoredCount} 个无用构建/系统文件` : ''
-        }）`,
+        `成功导出 ${result.fileCount} 个源码文件（预估 ~${result.estimatedTokens.toLocaleString()} Tokens）`,
         'success'
       );
     } catch (err: any) {
       setIsProcessing(false);
       onStatusChange('处理失败', 0);
-      onShowToast(err?.message || '处理 ZIP 失败，请检查文件格式与大小', 'error');
+      onShowToast(err?.message || '处理 ZIP 失败，请检查文件格式与体积', 'error');
     }
   };
 
   const handleDownloadTxt = () => {
     if (!generatedTxt || !selectedFile) return;
-    const defaultName = selectedFile.name.replace(/\.zip$/i, '') + '.txt';
+    const defaultName = selectedFile.name.replace(/\.zip$/i, '') + '_context.txt';
     const blob = new Blob([generatedTxt], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -206,27 +228,43 @@ export const ExportPage: React.FC<ExportPageProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    onShowToast(`已下载 ${defaultName}`, 'success');
+    onShowToast(`已保存并下载 ${defaultName}`, 'success');
   };
 
-  const handleCopyTxt = async () => {
+  const handleCopyTxtOnly = async () => {
     if (!generatedTxt) return;
     try {
       await navigator.clipboard.writeText(generatedTxt);
-      setCopiedType('txt');
-      onShowToast('TXT 全文已复制到剪贴板', 'success');
-      setTimeout(() => setCopiedType(null), 2500);
+      setCopyFeedback('txt_only');
+      onShowToast('✅ 仓库代码上下文 TXT 全文已复制到剪贴板', 'success');
     } catch {
-      onShowToast('复制失败，请尝试直接下载 TXT 文件', 'error');
+      onShowToast('复制失败，请尝试直接点击“下载 TXT 文件”', 'error');
     }
   };
 
-  const handleCopyPrompt = async (promptText: string, typeKey: string, promptName: string) => {
+  const handleCopyAssembledPrompt = async () => {
+    if (!generatedTxt) {
+      onShowToast('请先生成 TXT 上下文后再复制组装 Prompt', 'error');
+      return;
+    }
+    const template = customPrompts[activePromptKey] || DEFAULT_PROMPTS[activePromptKey];
+    const fullPrompt = assemblePromptWithContext(template, userRequirementText, generatedTxt);
+
     try {
-      await navigator.clipboard.writeText(promptText);
-      setCopiedType(typeKey);
-      onShowToast(`${promptName} 已复制到剪贴板`, 'success');
-      setTimeout(() => setCopiedType(null), 2500);
+      await navigator.clipboard.writeText(fullPrompt);
+      setCopyFeedback('assembled_prompt');
+      onShowToast('🎉「AI Prompt + 仓库全量代码」已复制！可直接粘贴给大模型', 'success');
+    } catch {
+      onShowToast('复制失败，请手动选择复制', 'error');
+    }
+  };
+
+  const handleCopyPromptTemplateOnly = async (promptKey: string, promptName: string) => {
+    const template = customPrompts[promptKey] || DEFAULT_PROMPTS[promptKey as keyof typeof DEFAULT_PROMPTS];
+    try {
+      await navigator.clipboard.writeText(template);
+      setCopyFeedback(`template_${promptKey}`);
+      onShowToast(`${promptName} 指令模板已复制到剪贴板`, 'success');
     } catch {
       onShowToast('复制失败，请手动选择复制', 'error');
     }
@@ -240,11 +278,11 @@ export const ExportPage: React.FC<ExportPageProps> = ({
 
   return (
     <div className="space-y-6 max-w-5xl">
-      {/* Page Title */}
+      {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">导出仓库 (ZIP → TXT)</h2>
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">01 · 导出代码仓库 (ZIP → TXT)</h2>
         <p className="text-sm text-slate-500 mt-1">
-          将代码包精准转换为 AI 可直接吞吐的完整上下文 TXT。包含目录结构树、文本源码与 SHA-256 哈希。
+          将 GitHub 或本地工程代码一键打包为结构化上下文 TXT，自动估算 Token、生成目录树，并支持组装高精度 AI Prompt。
         </p>
       </div>
 
@@ -255,11 +293,11 @@ export const ExportPage: React.FC<ExportPageProps> = ({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
+        className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 ${
           isDragging
-            ? 'border-indigo-500 bg-indigo-50/70 scale-[1.005]'
+            ? 'border-indigo-500 bg-indigo-50/80 scale-[1.005] shadow-md'
             : selectedFile
-            ? 'border-emerald-300 bg-emerald-50/30 hover:bg-emerald-50/50'
+            ? 'border-emerald-300 bg-emerald-50/40 hover:bg-emerald-50/60 shadow-xs'
             : 'border-slate-300 bg-white hover:border-indigo-400 hover:bg-slate-50/80 shadow-xs'
         }`}
       >
@@ -277,9 +315,9 @@ export const ExportPage: React.FC<ExportPageProps> = ({
 
         <div className="flex flex-col items-center justify-center space-y-3">
           <div
-            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform ${
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${
               selectedFile
-                ? 'bg-emerald-100 text-emerald-700'
+                ? 'bg-emerald-100 text-emerald-700 shadow-xs'
                 : 'bg-indigo-50 text-indigo-600'
             }`}
           >
@@ -295,21 +333,21 @@ export const ExportPage: React.FC<ExportPageProps> = ({
               <div className="space-y-1">
                 <p className="text-base font-semibold text-slate-900 flex items-center justify-center gap-2">
                   <span>{selectedFile.name}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-normal">
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono font-medium">
                     {humanSize(selectedFile.size)}
                   </span>
                 </p>
                 <p className="text-xs text-slate-500">
-                  点击或拖入新文件以更换 ZIP
+                  点击或拖入其他文件即可重新选择
                 </p>
               </div>
             ) : (
               <div className="space-y-1">
                 <p className="text-base font-semibold text-slate-800">
-                  拖入 ZIP 压缩包，或 <span className="text-indigo-600 underline decoration-indigo-300 underline-offset-2">点击浏览选择</span>
+                  拖拽 ZIP 压缩包到此处，或 <span className="text-indigo-600 underline decoration-indigo-300 underline-offset-2">点击浏览选择</span>
                 </p>
                 <p className="text-xs text-slate-400">
-                  支持从 GitHub 下载的代码包，最大支持 512 MB 压缩包
+                  支持从 GitHub 下载的代码包 (最大 512 MB，自动过滤根目录包裹)
                 </p>
               </div>
             )}
@@ -317,15 +355,15 @@ export const ExportPage: React.FC<ExportPageProps> = ({
         </div>
       </div>
 
-      {/* Options & Configuration Card */}
-      <div className="bg-white rounded-xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+      {/* Options & Action Box */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs space-y-4">
         <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-          <Layers className="w-4 h-4 text-slate-500" />
+          <Layers className="w-4 h-4 text-indigo-600" />
           导出与过滤配置
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 cursor-pointer transition-colors">
+          <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 cursor-pointer transition-colors">
             <input
               type="checkbox"
               id="filter-ignored-folders-checkbox"
@@ -334,17 +372,17 @@ export const ExportPage: React.FC<ExportPageProps> = ({
               className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
             />
             <div className="text-xs">
-              <span className="font-semibold text-slate-800 block flex items-center gap-1.5">
-                <Filter className="w-3 h-3 text-indigo-600" />
-                自动过滤无用目录与垃圾缓存
+              <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                自动过滤构建产物与无用缓存
               </span>
-              <span className="text-slate-500">
-                自动排除 node_modules, .git (版本历史), .venv, dist, __pycache__, __MACOSX 等庞大缓存（保留 .github 工作流及项目配置）
+              <span className="text-slate-500 block mt-0.5">
+                自动排除 node_modules, .git 历史, .venv, dist, __pycache__, __MACOSX 等高冗余文件
               </span>
             </div>
           </label>
 
-          <label className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 cursor-pointer transition-colors">
+          <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 cursor-pointer transition-colors">
             <input
               type="checkbox"
               id="include-binary-checkbox"
@@ -354,23 +392,23 @@ export const ExportPage: React.FC<ExportPageProps> = ({
             />
             <div className="text-xs">
               <span className="font-semibold text-slate-800 block">
-                嵌入二进制文件 Base64
+                Base64 嵌入二进制多媒体文件
               </span>
-              <span className="text-slate-500">
-                将图片、字体等以 Base64 写入 TXT（仅在需要 AI 直接重建多媒体资源时开启）
+              <span className="text-slate-500 block mt-0.5">
+                默认仅记录路径与 SHA-256 哈希；开启后将图片/音频等以 Base64 编码完整输出
               </span>
             </div>
           </label>
         </div>
 
-        {/* Progress Bar (Visible during processing) */}
+        {/* Processing Progress */}
         {isProcessing && (
           <div className="space-y-2 pt-2">
             <div className="flex justify-between text-xs font-medium text-slate-600">
               <span className="truncate max-w-[80%]">
                 {currentFileProcessing ? `解析中: ${currentFileProcessing}` : '正在解压...'}
               </span>
-              <span>{progress}%</span>
+              <span className="font-mono">{progress}%</span>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
               <div
@@ -381,13 +419,13 @@ export const ExportPage: React.FC<ExportPageProps> = ({
           </div>
         )}
 
-        {/* Action Button Row */}
+        {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-3 pt-2">
           <button
             id="start-export-btn"
             disabled={!selectedFile || isProcessing}
             onClick={handleStartExport}
-            className={`px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-xs transition-all cursor-pointer ${
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-xs transition-all cursor-pointer ${
               !selectedFile || isProcessing
                 ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20 active:scale-[0.98]'
@@ -396,12 +434,12 @@ export const ExportPage: React.FC<ExportPageProps> = ({
             {isProcessing ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                正在生成 TXT...
+                正在解析生成 TXT...
               </>
             ) : (
               <>
                 <FileText className="w-4 h-4" />
-                开始生成 TXT 报告
+                开始解析并生成 TXT
               </>
             )}
           </button>
@@ -411,7 +449,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
               <button
                 id="download-txt-btn"
                 onClick={handleDownloadTxt}
-                className="px-4 py-2.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+                className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2 transition-all shadow-xs cursor-pointer active:scale-[0.98]"
               >
                 <Download className="w-4 h-4" />
                 下载 TXT 文件
@@ -419,18 +457,22 @@ export const ExportPage: React.FC<ExportPageProps> = ({
 
               <button
                 id="copy-txt-btn"
-                onClick={handleCopyTxt}
-                className="px-4 py-2.5 rounded-lg text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-2 transition-all cursor-pointer"
+                onClick={handleCopyTxtOnly}
+                className={`px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all cursor-pointer border ${
+                  copiedKey === 'txt_only'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
+                }`}
               >
-                {copiedType === 'txt' ? (
+                {copiedKey === 'txt_only' ? (
                   <>
-                    <Check className="w-4 h-4 text-emerald-600" />
-                    已复制 TXT
+                    <CheckCheck className="w-4 h-4 text-emerald-600" />
+                    已复制 TXT 全文
                   </>
                 ) : (
                   <>
-                    <Copy className="w-4 h-4" />
-                    复制全部 TXT
+                    <Copy className="w-4 h-4 text-slate-500" />
+                    复制 TXT 全文
                   </>
                 )}
               </button>
@@ -442,10 +484,10 @@ export const ExportPage: React.FC<ExportPageProps> = ({
       {/* Generated Result Summary Card */}
       {generatedTxt && (
         <div className="bg-white rounded-xl p-5 border border-emerald-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm">
               <Check className="w-4 h-4" />
-              <span>TXT 导出已生成</span>
+              <span>仓库 TXT 导出已就绪</span>
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-500 font-mono">
               <span>有效源码: {fileEntries.length} 篇</span>
@@ -454,56 +496,67 @@ export const ExportPage: React.FC<ExportPageProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+          {/* Metric Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
               <span className="text-xs text-slate-500 block">有效源码文件</span>
-              <span className="text-lg font-bold text-slate-800">{fileEntries.length}</span>
+              <span className="text-lg font-bold text-slate-800 mt-0.5 block">{fileEntries.length}</span>
             </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <span className="text-xs text-slate-500 block">纯文本代码</span>
-              <span className="text-lg font-bold text-indigo-600">{textCount}</span>
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="text-xs text-slate-500 block">代码总行数</span>
+              <span className="text-lg font-bold text-indigo-600 mt-0.5 block">{totalLines.toLocaleString()} 行</span>
             </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-              <span className="text-xs text-slate-500 block">二进制文件</span>
-              <span className="text-lg font-bold text-amber-600">{binaryCount}</span>
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="text-xs text-slate-500 block">预估 LLM Token</span>
+              <span className="text-lg font-bold text-emerald-600 mt-0.5 block">~{estimatedTokens.toLocaleString()}</span>
+            </div>
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="text-xs text-slate-500 block">文件构成</span>
+              <span className="text-xs font-semibold text-slate-700 mt-1.5 block">
+                文本 {textCount} / 二进制 {binaryCount}
+              </span>
             </div>
           </div>
 
-          {/* Directory Explorer & File Search */}
+          {/* File Explorer */}
           <div className="space-y-2 pt-2">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                 <FolderTree className="w-3.5 h-3.5 text-indigo-600" />
-                已收录文件清单 (点击可直接预览单文件内容)
+                已收录文件目录树 (点击条目预览代码)
               </h4>
               <div className="relative w-56">
-                <Search className="w-3 h-3 text-slate-400 absolute left-2 top-2" />
+                <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-2.5" />
                 <input
                   type="text"
                   value={treeSearchQuery}
                   onChange={e => setTreeSearchQuery(e.target.value)}
-                  placeholder="搜索已包含文件..."
-                  className="w-full pl-7 pr-2 py-1 text-xs rounded border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                  placeholder="搜索文件路径..."
+                  className="w-full pl-7 pr-2.5 py-1 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500 text-slate-800"
                 />
               </div>
             </div>
 
-            <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 p-2 space-y-1">
+            <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 p-2 space-y-1">
               {filteredEntries.map(entry => (
                 <div
                   key={entry.relativePath}
                   onClick={() => setPreviewEntry(entry)}
-                  className="flex items-center justify-between px-2 py-1 rounded bg-white hover:bg-indigo-50 border border-slate-100 cursor-pointer text-xs group transition-colors"
+                  className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-50 border border-slate-100 cursor-pointer text-xs group transition-colors shadow-2xs"
                 >
-                  <span className="font-mono text-slate-800 truncate mr-2">
+                  <span className="font-mono text-slate-800 truncate mr-2 font-medium">
                     {entry.relativePath}
                   </span>
-                  <div className="flex items-center gap-2 flex-shrink-0 text-[10px] text-slate-400">
+                  <div className="flex items-center gap-2 flex-shrink-0 text-[11px] text-slate-400 font-mono">
                     <span>{humanSize(entry.size)}</span>
-                    <span className="px-1.5 py-0.5 rounded bg-slate-100 group-hover:bg-indigo-100 group-hover:text-indigo-700 text-slate-600">
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        entry.isBinary ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-700'
+                      }`}
+                    >
                       {entry.isBinary ? 'Binary' : 'Text'}
                     </span>
-                    <Eye className="w-3 h-3 text-slate-400 group-hover:text-indigo-600" />
+                    <Eye className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600" />
                   </div>
                 </div>
               ))}
@@ -512,240 +565,185 @@ export const ExportPage: React.FC<ExportPageProps> = ({
         </div>
       )}
 
-      {/* AI Prompt Snippets Quick Copy & Customize Section */}
-      <div className="bg-white rounded-xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* Interactive AI Prompt Station */}
+      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-indigo-600" />
-              配合 AI 使用的标准 Prompt 规范
+              AI Prompt 智能装配与下发工作台
             </h3>
-            <span className="text-xs text-slate-400">支持一键复制，点击右上角图标可随时微调或自定义个人专属 Prompt</span>
+            <p className="text-xs text-slate-500 mt-0.5">
+              选择预设指令模板，填入业务需求，一键组装「Prompt 指令 + 仓库全量代码」发送给大模型
+            </p>
           </div>
 
           <button
             id="reset-all-prompts-btn"
             onClick={handleResetAllPrompts}
-            className="text-[11px] text-slate-500 hover:text-indigo-600 px-2.5 py-1 rounded border border-slate-200 hover:border-indigo-200 bg-slate-50 hover:bg-white flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="text-xs text-slate-500 hover:text-indigo-600 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-indigo-200 bg-slate-50 hover:bg-white flex items-center gap-1.5 transition-colors cursor-pointer"
             title="将全部 4 组提示词重置为官方默认标准规范"
           >
             <RotateCcw className="w-3 h-3" />
-            重置全部为默认
+            重置为出厂 Prompt
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Primary Prompt */}
-          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between hover:border-indigo-200 transition-all group relative">
-            <div className="space-y-1.5 mb-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-indigo-900">01 · AI 需求实现</span>
-                <div className="flex items-center gap-1.5">
-                  {customPrompts.primary !== DEFAULT_PROMPTS.primary && (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-100 text-amber-800 font-mono">已自定义</span>
+        {/* Prompt Tabs */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { key: 'primary', label: '01 · 需求开发', desc: '全功能修改与输出规范' },
+            { key: 'continue', label: '02 · 截断继续', desc: '无缝恢复超长输出' },
+            { key: 'audit_cn', label: '03 · 架构审计 (中文)', desc: '生产就绪度/漏洞排查' },
+            { key: 'audit_en', label: '04 · Audit (EN)', desc: 'OWASP & Resilience' },
+          ].map(tab => {
+            const isSelected = activePromptKey === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActivePromptKey(tab.key as any)}
+                className={`p-3 rounded-xl text-left border transition-all cursor-pointer ${
+                  isSelected
+                    ? 'border-indigo-500 bg-indigo-50/70 text-indigo-950 font-semibold shadow-xs'
+                    : 'border-slate-200 bg-slate-50/50 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold leading-tight">{tab.label}</span>
+                  {customPrompts[tab.key] !== (DEFAULT_PROMPTS as any)[tab.key] && (
+                    <span className="text-[9px] px-1 rounded bg-amber-100 text-amber-800">已改动</span>
                   )}
-                  <button
-                    onClick={() => handleOpenPromptEditor('primary', '01 · AI 需求实现 Prompt')}
-                    title="编辑此 Prompt"
-                    className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-indigo-600 transition-colors"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </button>
                 </div>
-              </div>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                规范 AI 按照标准文件块格式返回完整修改代码。
-              </p>
-            </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-tight">{tab.desc}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Optional Requirement Input */}
+        {activePromptKey === 'primary' && (
+          <div className="space-y-1.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+            <label className="text-xs font-semibold text-slate-800 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <MessageSquareCode className="w-3.5 h-3.5 text-indigo-600" />
+                具体开发/重构需求 (可选，将自动替换模板中的占位符):
+              </span>
+              <span className="text-[11px] text-slate-400 font-normal">支持多行描述</span>
+            </label>
+            <textarea
+              rows={3}
+              value={userRequirementText}
+              onChange={e => setUserRequirementText(e.target.value)}
+              placeholder="例如：请为项目添加 JWT 鉴权中间件，并在登录接口上实现防暴力破解限流保护..."
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 font-mono"
+            />
+          </div>
+        )}
+
+        {/* Prompt Actions */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div className="flex items-center gap-2">
             <button
-              id="copy-primary-prompt-btn"
-              onClick={() => handleCopyPrompt(customPrompts.primary, 'primary', 'AI 主 Prompt')}
-              className="w-full py-2 px-3 rounded-lg text-xs font-medium bg-white hover:bg-indigo-50 border border-slate-200 text-slate-700 hover:text-indigo-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              onClick={() => handleOpenPromptEditor(activePromptKey, activePromptKey)}
+              className="text-xs text-slate-600 hover:text-indigo-600 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              {copiedType === 'primary' ? (
+              <Edit3 className="w-3.5 h-3.5" />
+              自定义此 Prompt
+            </button>
+            <button
+              onClick={() => handleCopyPromptTemplateOnly(activePromptKey, '当前 Prompt 模板')}
+              className={`text-xs px-3 py-2 rounded-lg border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                copiedKey === `template_${activePromptKey}`
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 font-medium'
+                  : 'text-slate-600 hover:text-slate-900 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {copiedKey === `template_${activePromptKey}` ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  已复制
+                  <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  已复制单独模板
                 </>
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5" />
-                  复制主 Prompt
+                  仅复制 Prompt 模板
                 </>
               )}
             </button>
           </div>
 
-          {/* Continue Prompt */}
-          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between hover:border-indigo-200 transition-all group relative">
-            <div className="space-y-1.5 mb-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800">02 · 截断继续输出</span>
-                <div className="flex items-center gap-1.5">
-                  {customPrompts.continue !== DEFAULT_PROMPTS.continue && (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-100 text-amber-800 font-mono">已自定义</span>
-                  )}
-                  <button
-                    onClick={() => handleOpenPromptEditor('continue', '02 · 截断继续输出 Prompt')}
-                    title="编辑此 Prompt"
-                    className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-indigo-600 transition-colors"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                当 AI 因 Token 限制截断时，指示 AI 从中断处继续无损输出。
-              </p>
-            </div>
-            <button
-              id="copy-continue-prompt-btn"
-              onClick={() => handleCopyPrompt(customPrompts.continue, 'continue', '继续输出 Prompt')}
-              className="w-full py-2 px-3 rounded-lg text-xs font-medium bg-white hover:bg-indigo-50 border border-slate-200 text-slate-700 hover:text-indigo-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              {copiedType === 'continue' ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  已复制
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  复制继续 Prompt
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Production Audit CN */}
-          <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 flex flex-col justify-between hover:border-indigo-300 transition-all group relative">
-            <div className="space-y-1.5 mb-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-indigo-950">03 · 生产级审计 (中文)</span>
-                <div className="flex items-center gap-1.5">
-                  {customPrompts.audit_cn !== DEFAULT_PROMPTS.audit_cn && (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-100 text-amber-800 font-mono">已自定义</span>
-                  )}
-                  <button
-                    onClick={() => handleOpenPromptEditor('audit_cn', '03 · 生产级审计 (中文)')}
-                    title="编辑自定义此 Prompt"
-                    className="p-1 rounded hover:bg-indigo-100 text-indigo-400 hover:text-indigo-700 transition-colors"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                首席架构师与安全审计视角：排查坏味道、内存泄漏并直接给出投产级代码。
-              </p>
-            </div>
-            <button
-              id="copy-review-cn-prompt-btn"
-              onClick={() => handleCopyPrompt(customPrompts.audit_cn, 'audit_cn', '生产级审计 Prompt (中文版)')}
-              className="w-full py-2 px-3 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-            >
-              {copiedType === 'audit_cn' ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-white" />
-                  已复制中文审计词
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  复制生产审计词 (中)
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Production Audit EN */}
-          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between hover:border-indigo-200 transition-all group relative">
-            <div className="space-y-1.5 mb-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800">04 · Production Audit (EN)</span>
-                <div className="flex items-center gap-1.5">
-                  {customPrompts.audit_en !== DEFAULT_PROMPTS.audit_en && (
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-100 text-amber-800 font-mono">已自定义</span>
-                  )}
-                  <button
-                    onClick={() => handleOpenPromptEditor('audit_en', '04 · Production Audit (EN)')}
-                    title="编辑自定义此 Prompt"
-                    className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-indigo-600 transition-colors"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Full-spectrum security & architecture audit prompt with OWASP compliance.
-              </p>
-            </div>
-            <button
-              id="copy-review-en-prompt-btn"
-              onClick={() => handleCopyPrompt(customPrompts.audit_en, 'audit_en', 'Production Audit Prompt (English)')}
-              className="w-full py-2 px-3 rounded-lg text-xs font-medium bg-white hover:bg-indigo-50 border border-slate-200 text-slate-700 hover:text-indigo-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              {copiedType === 'audit_en' ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  Copied EN Audit
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  复制审计词 (EN)
-                </>
-              )}
-            </button>
-          </div>
+          <button
+            id="copy-assembled-prompt-btn"
+            disabled={!generatedTxt}
+            onClick={handleCopyAssembledPrompt}
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all shadow-xs cursor-pointer ${
+              !generatedTxt
+                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                : copiedKey === 'assembled_prompt'
+                ? 'bg-emerald-600 text-white shadow-emerald-600/20'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20 active:scale-[0.98]'
+            }`}
+          >
+            {copiedKey === 'assembled_prompt' ? (
+              <>
+                <CheckCheck className="w-4 h-4 text-white animate-bounce" />
+                已复制「Prompt + 仓库上下文」！
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 text-amber-300" />
+                一键复制「AI Prompt + 仓库全量上下文」
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* Custom Prompt Editor & Reset Modal */}
+      {/* Custom Prompt Editor Modal */}
       {editingPromptKey && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+            <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-indigo-400" />
-                <span className="font-semibold text-xs text-white">
-                  编辑与自定义提示词 · {editingPromptTitle}
+                <Edit3 className="w-4 h-4 text-indigo-600" />
+                <span className="font-bold text-sm text-slate-800">
+                  编辑自定义 Prompt · {editingPromptTitle}
                 </span>
               </div>
               <button
                 onClick={() => setEditingPromptKey(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-4 bg-slate-950 text-slate-100 flex-1 overflow-auto flex flex-col">
-              <div className="text-[11px] text-slate-400 mb-2 flex items-center justify-between">
-                <span>根据您团队的标准自由增删要求，系统将自动持久化至浏览器本地缓存。</span>
-                <span>字符数: {editingPromptDraft.length.toLocaleString()}</span>
+            <div className="p-4 bg-white flex-1 overflow-auto flex flex-col space-y-2">
+              <div className="text-xs text-slate-500 flex items-center justify-between">
+                <span>修改后会自动保存在浏览器本地缓存中，供后续任务随时调用。</span>
+                <span className="font-mono text-slate-400">字符数: {editingPromptDraft.length.toLocaleString()}</span>
               </div>
               <textarea
                 value={editingPromptDraft}
                 onChange={e => setEditingPromptDraft(e.target.value)}
-                className="flex-1 w-full h-80 min-h-[320px] bg-slate-900/90 rounded-lg p-3 text-slate-100 font-mono text-xs focus:outline-hidden focus:ring-1 focus:ring-indigo-500 leading-relaxed resize-none selection:bg-indigo-600"
+                className="flex-1 w-full h-80 min-h-[300px] bg-slate-50 rounded-xl p-3.5 text-slate-800 font-mono text-xs border border-slate-300 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 leading-relaxed resize-none selection:bg-indigo-100"
                 spellCheck={false}
               />
             </div>
 
-            <div className="px-5 py-3 bg-slate-100 border-t border-slate-200 flex justify-between items-center">
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
               <button
                 onClick={() => handleResetPromptToDefault(editingPromptKey, editingPromptTitle)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-indigo-700 hover:bg-slate-200 flex items-center gap-1.5 cursor-pointer transition-colors"
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-indigo-700 hover:bg-slate-200/60 flex items-center gap-1.5 cursor-pointer transition-colors"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                恢复为出厂默认规范
+                恢复为官方默认
               </button>
 
               <div className="flex gap-2">
                 <button
                   onClick={() => setEditingPromptKey(null)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
                 >
                   取消
                 </button>
@@ -754,7 +752,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                   className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  保存此提示词
+                  保存修改
                 </button>
               </div>
             </div>
@@ -764,40 +762,53 @@ export const ExportPage: React.FC<ExportPageProps> = ({
 
       {/* File Preview Modal */}
       {previewEntry && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[85vh]">
-            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+            <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2 truncate">
-                <Code className="w-4 h-4 text-indigo-400" />
-                <span className="font-mono text-xs font-semibold truncate">
+                <Code className="w-4 h-4 text-indigo-600" />
+                <span className="font-mono text-xs font-bold text-slate-800 truncate">
                   {previewEntry.relativePath}
                 </span>
-                <span className="text-[11px] text-slate-400 font-mono">
+                <span className="text-[11px] text-slate-500 font-mono">
                   ({humanSize(previewEntry.size)})
                 </span>
               </div>
               <button
                 onClick={() => setPreviewEntry(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-4 bg-slate-950 text-slate-100 flex-1 overflow-auto font-mono text-xs leading-relaxed">
+            <div className="p-4 bg-slate-50 flex-1 overflow-auto font-mono text-xs leading-relaxed text-slate-800">
               {previewEntry.isBinary ? (
-                <div className="text-amber-400 text-center py-10">
-                  这是二进制文件 ({humanSize(previewEntry.size)})，已生成 SHA-256: {previewEntry.sha256}
+                <div className="text-amber-700 text-center py-10">
+                  这是二进制文件 ({humanSize(previewEntry.size)})，SHA-256: {previewEntry.sha256}
                 </div>
               ) : (
-                <pre>{previewEntry.content}</pre>
+                <pre className="whitespace-pre-wrap">{previewEntry.content}</pre>
               )}
             </div>
 
-            <div className="px-5 py-3 bg-slate-100 border-t border-slate-200 flex justify-end gap-2">
+            <div className="px-5 py-3 bg-white border-t border-slate-200 flex justify-between items-center">
+              <button
+                onClick={async () => {
+                  if (previewEntry.content) {
+                    await navigator.clipboard.writeText(previewEntry.content);
+                    onShowToast(`已复制 ${previewEntry.relativePath} 代码内容`, 'success');
+                  }
+                }}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                复制此文件代码
+              </button>
+
               <button
                 onClick={() => setPreviewEntry(null)}
-                className="px-4 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-900 text-white cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs"
               >
                 关闭预览
               </button>

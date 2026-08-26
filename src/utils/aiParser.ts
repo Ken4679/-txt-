@@ -12,18 +12,18 @@ import { ParsedAiFile } from '../types';
  * Regex patterns matching various AI file declaration formats
  */
 const FILE_HEADER_PATTERNS = [
-  // Standard: ### FILE: path or ## FILE: path or # FILE: path
+  // Standard Markdown headers: ### FILE: path or ## FILE: path or # FILE: path
   /^\s*(?:#{1,6}\s*)?FILE\s*:\s*[`"']?(.+?)[`"']?\s*$/i,
-  // Markdown bold: **FILE:** path or **File:** `path`
-  /^\s*\*\*(?:FILE|File|FilePath)\s*:\s*\*\*\s*[`"']?(.+?)[`"']?\s*$/i,
-  // Markdown bold including text: **FILE: path** or **File: path**
-  /^\s*\*\*(?:FILE|File|FilePath)\s*:\s*[`"']?(.+?)[`"']?\*\*\s*$/i,
-  // Comment-style: // FILE: path or /* FILE: path */ or <!-- FILE: path -->
-  /^\s*(?:\/\/|\/\*|<!--|#)\s*FILE\s*:\s*[`"']?(.+?)[`"']?(?:\s*\*\/|\s*-->)?\s*$/i,
-  // Bracketed: [FILE: path] or [FILE] path
-  /^\s*\[\s*FILE(?:\s*:)?\s*[`"']?(.+?)[`"']?\s*\]\s*$/i,
-  // FilePath: path or File: path
-  /^\s*(?:FilePath|File Path|Target File)\s*:\s*[`"']?(.+?)[`"']?\s*$/i,
+  // Markdown bold headers: **FILE:** path or **File:** `path`
+  /^\s*\*\*(?:FILE|File|FilePath|Path)\s*:\s*\*\*\s*[`"']?(.+?)[`"']?\s*$/i,
+  // Markdown bold wrapper: **FILE: path** or **File: path**
+  /^\s*\*\*(?:FILE|File|FilePath|Path)\s*:\s*[`"']?(.+?)[`"']?\*\*\s*$/i,
+  // Code comment tags: // FILE: path, /* FILE: path */, <!-- FILE: path -->, # FILE: path
+  /^\s*(?:\/\/|\/\*|<!--|#)\s*(?:FILE|File|FilePath)\s*:\s*[`"']?(.+?)[`"']?(?:\s*\*\/|\s*-->)?\s*$/i,
+  // Bracketed tags: [FILE: path], [FILE] path, [File: path]
+  /^\s*\[\s*(?:FILE|File|FilePath)(?:\s*:)?\s*[`"']?(.+?)[`"']?\s*\]\s*$/i,
+  // FilePath: path or File: path or Target File: path
+  /^\s*(?:FilePath|File Path|Target File|File)\s*:\s*[`"']?(.+?)[`"']?\s*$/i,
 ];
 
 // Inline fence pattern: ```python:src/main.py or ```ts file="src/app.ts" or ```tsx path=src/app.tsx
@@ -77,7 +77,7 @@ export function parseAiBlocks(rawText: string): ParseResult {
       });
       if (isAutoClosed) {
         autoClosedCount++;
-        warnings.push(`文件 [${currentPath}] 因代码围栏未闭合已自动闭合（可能 AI 输出达到长度截断）。`);
+        warnings.push(`文件 [${currentPath}] 因代码围栏未闭合已自动闭合（可能由于 AI 输出达到了 Token 截断限制）。`);
       }
     }
     currentPath = null;
@@ -111,13 +111,13 @@ export function parseAiBlocks(rawText: string): ParseResult {
         const match = line.match(pattern);
         if (match && match[1]) {
           const candidate = match[1].trim();
-          // Verify candidate looks like a file path or name
-          if (candidate.length > 0 && !candidate.startsWith('http')) {
+          // Verify candidate looks like a valid relative path (must contain file extension or directory divider)
+          if (candidate.length > 0 && !candidate.startsWith('http') && !candidate.includes('://')) {
             try {
               matchedPath = normalizeAiPath(candidate);
               break;
             } catch {
-              // Ignore invalid paths in conversational text
+              // Ignore conversational phrases that triggered false-positive header matches
             }
           }
         }
@@ -125,7 +125,6 @@ export function parseAiBlocks(rawText: string): ParseResult {
 
       if (matchedPath) {
         currentPath = matchedPath;
-        // Look ahead for the code fence within the next few lines (tolerant to AI conversational sentences)
         continue;
       }
 
@@ -208,6 +207,7 @@ export function parseAiBlocks(rawText: string): ParseResult {
       size,
       isSensitive: isSensitivePath(path),
       language: data.language,
+      isAutoClosed: data.isAutoClosed,
     });
   }
 
@@ -219,17 +219,21 @@ export function parseAiBlocks(rawText: string): ParseResult {
 }
 
 /**
- * Packs all parsed files into a standard ZIP patch archive
+ * Packs parsed files into a standard ZIP patch archive
  */
 export async function generatePatchZip(
   files: ParsedAiFile[],
-  allowSensitive: boolean
+  allowSensitive: boolean,
+  selectedPaths?: Set<string>
 ): Promise<Blob> {
   const zip = new JSZip();
 
   for (const file of files) {
+    if (selectedPaths && !selectedPaths.has(file.relativePath)) {
+      continue;
+    }
     if (file.isSensitive && !allowSensitive) {
-      throw new Error(`受保护敏感文件已被安全策略拦截：${file.relativePath}。如需打包请允许敏感文件。`);
+      throw new Error(`受保护敏感文件已被安全策略拦截：${file.relativePath}。如需打包请勾选允许敏感文件。`);
     }
     zip.file(file.relativePath, file.content);
   }

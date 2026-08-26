@@ -67,26 +67,26 @@ export const MAX_AI_FILES = 3_000;
 export const MAX_AI_TOTAL_OUTPUT_BYTES = 120 * 1024 * 1024; // 120 MB
 export const MAX_AI_SINGLE_OUTPUT_BYTES = 15 * 1024 * 1024; // 15 MB
 
-export const AI_PRIMARY_PROMPT = `I am sharing a complete source-code repository exported into a TXT file.
+export const AI_PRIMARY_PROMPT = `I am sharing a complete source-code repository exported into a TXT format below.
 
 Please implement this requirement:
 [DESCRIBE YOUR REQUIREMENT HERE]
 
-Rules:
-1. Preserve the existing architecture unless necessary.
-2. Only return files you modified or created.
-3. For every changed file use exactly:
+Strict Output Rules:
+1. Preserve existing system architecture, design patterns, and naming standards unless explicitly asked otherwise.
+2. Only return files that you modified or newly created.
+3. Every file must strictly follow this exact Markdown format:
 ### FILE: relative/path/to/file.ext
 \`\`\`language
-complete file content
+// Complete, directly runnable source code
 \`\`\`
-4. Always return complete file content. Never use placeholders (e.g. do not use "...keep existing code...").
-5. Preserve repository-relative paths.
-6. If a file is long, continue in multiple messages without omitting content.`;
+4. Always provide 100% complete file contents. NEVER use placeholders (e.g., do NOT use "...keep existing code..." or "...").
+5. Preserve repository-relative paths accurately.
+6. If the response length is exceeded, pause cleanly at a file boundary or code block and I will prompt you to continue.`;
 
 export const AI_CONTINUE_PROMPT = `Continue exactly where your previous response stopped.
-Do not restart completed files. Do not summarize. Output remaining complete source code only.
-Use:
+Do not restart completed files. Do not summarize or explain. Output remaining complete source code files only.
+Format:
 ### FILE: relative/path/to/file.ext
 \`\`\`language
 complete file content
@@ -96,15 +96,13 @@ export const DEFAULT_PROMPTS = {
   primary: AI_PRIMARY_PROMPT,
   continue: AI_CONTINUE_PROMPT,
   audit_cn: `你是一名兼具【顶级软件架构师】、【首席安全审计专家】与【生产交付负责人】三重身份的技术权威。你正在审计一份通过 TXT 格式全量导出的代码仓库。
-该项目为 AI 辅助敏捷编程（Vibe Coding）产物，尽管功能逻辑貌似闭环，但由于大模型概率采样特性，极大概率潜藏【架构坏味道】、【静默异常】、【资源泄漏】与【致命安全漏洞】。
-
-你的唯一使命：以严苛的【工业级生产上线（Zero-Bug & High-Reliability）】标准进行端到端全方位深度审计，并针对所有瑕疵直接输出【100% 完整、可直接打补丁替换上线的生产级源代码】。
+该项目包含 AI 辅助敏捷编程产物，请以严苛的【工业级生产上线（Zero-Bug & High-Reliability）】标准进行端到端全方位深度审计，并针对所有瑕疵直接输出【100% 完整、可直接打补丁替换上线的生产级源代码】。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【审计维度与检查矩阵】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. 架构严谨性与高内聚低耦合 (Architecture & Code Smells)：
-   - 依赖边界：排查模块交叉依赖、循环引用、上帝类/过度膨胀函数，检查单一职责原则（SRP）。
+1. 架构严谨性与代码异味 (Architecture & Code Smells)：
+   - 依赖边界：排查模块循环引用、上帝类/过度膨胀函数、单一职责原则（SRP）。
    - 数据流与状态：排查竞态条件（Race Conditions）、状态失真、未清理的全局副作用、不可达死代码。
 2. 功能完备性与防御性编码 (Completeness & Edge Cases)：
    - 异常处理：彻底排查静默吞异常（空的 catch 块）、未捕获的异步 Promise rejection、未校验的 API 返回格式。
@@ -144,9 +142,7 @@ export const DEFAULT_PROMPTS = {
 ### 04. 部署与冒烟测试清单 (Smoke Test Checklist)
 - 提供 3-5 步清晰的验证步骤或单元测试建议，确保修复后无任何功能破坏或回归。`,
   audit_en: `You are a Principal Software Architect, Lead Security Auditor, and Production Release Gatekeeper auditing a complete repository exported in TXT format.
-The codebase originates from AI rapid prototyping ("vibecoding"). While ostensibly functional, stochastic generation frequently leaves hidden architectural rot, resource leaks, race conditions, and critical security vulnerabilities.
-
-Your absolute objective: Audit this entire codebase against rigorous, enterprise-grade production reliability standards and provide 100% complete, drop-in replacement remediation code.
+Your objective: Audit this entire codebase against rigorous, enterprise-grade production reliability standards and provide 100% complete, drop-in replacement remediation code.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【AUDIT METHODOLOGY & SCOPE】
@@ -195,4 +191,3 @@ Structure your response into the following 4 sections:
 export const AI_AUDIT_PROMPT_CN = DEFAULT_PROMPTS.audit_cn;
 export const AI_AUDIT_PROMPT_EN = DEFAULT_PROMPTS.audit_en;
 export const AI_REVIEW_PROMPT = AI_AUDIT_PROMPT_CN;
-
