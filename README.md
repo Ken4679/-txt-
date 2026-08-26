@@ -82,9 +82,10 @@ npm run build
 ---
 
 ### 方式 B：Windows 原生桌面客户端（`ZipToTxt.exe`）
-基于 **Python 3.10+ / Tkinter / TkinterDnD2** 构建，独立单文件分发，免安装直接运行。
-- **Windows 任务栏与高清图标适配**：注册原生 `AppUserModelID`，多分辨率 `.ico` 完美适配 4K 高分屏。
-- **安全降级机制**：集成 TkDnD 拖拽库；若宿主环境缺失 DLL 则自动平滑降级至标准文件对话框模式，保证 100% 稳定运行。
+基于 **Python 3.10+ / PySide6 (Qt6)** 构建，独立单文件分发，免安装直接运行。
+- **现代化深色主题与高分屏优化**：基于 Qt6 硬件加速与 Slate Dark 专业暗色调，4K / 150% / 200% 高分屏无损矢量缩放。
+- **Windows 原生拖拽与多任务线程**：基于 Qt 内核事件循环原生支持 `.zip`、`.txt`、`.md` 拖拽载入，后台 Worker 线程无卡顿处理大型代码仓库。
+- **任务栏与高清图标适配**：注册原生 Windows `AppUserModelID`，多分辨率 `app.ico` 完美适配资源管理器与任务栏。
 
 #### 客户端源码运行
 ```bash
@@ -100,7 +101,7 @@ python main.py
 # 安装指定版本 PyInstaller
 pip install pyinstaller==6.22.2
 
-# 执行打包命令（自动打包图标与 TkDnD 动态库）
+# 执行打包命令（自动打包图标与 PySide6 核心模块）
 pyinstaller --clean --noconfirm `
   --onefile `
   --windowed `
@@ -195,10 +196,9 @@ def format_message(msg: str) -> str:
 │   ├── App.tsx               # Web 端主入口应用
 │   └── main.tsx              # React DOM 渲染入口
 ├── core.py                   # Python 核心解析与安全审计引擎 (CLI/GUI 共用)
-├── main.py                   # Python Tkinter Windows 桌面端 GUI 入口
-├── test_core.py              # Python 单元测试套件 (ZipSlip/ZipBomb/Parser)
-├── hook-tkinterdnd2.py       # PyInstaller TkDnD 二进制钩子
-├── requirements.txt          # Python 依赖清单
+├── main.py                   # Python PySide6 (Qt6) Windows 桌面端 GUI 应用程序
+├── test_core.py              # Python 单元测试套件 (ZipSlip/ZipBomb/Parser 安全审计)
+├── requirements.txt          # Python 依赖清单 (PySide6)
 ├── package.json              # Node.js / React 依赖配置
 └── README.md                 # 项目详细中英文技术文档
 ```

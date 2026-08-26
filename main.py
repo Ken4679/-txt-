@@ -1,448 +1,1008 @@
-# GUI Entry for ZipToTxt Desktop EXE
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+ZipToTxt - Professional Desktop Workspace (PySide6 Edition)
+Supports ZIP to TXT context extraction and AI Markdown code patch generation.
+"""
+
 import os
 import sys
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-import threading
-import zipfile
-import hashlib
-from typing import Optional, List
+import tempfile
+import time
+from typing import Optional, List, Dict
 
-HAS_WINDND = False
-if sys.platform == 'win32':
-    try:
-        import windnd
-        HAS_WINDND = True
-    except Exception:
-        HAS_WINDND = False
+from PySide6.QtCore import Qt, QThread, Signal, QSize, QUrl, QTimer
+from PySide6.QtGui import (
+    QIcon, QFont, QColor, QPalette, QDragEnterEvent, QDropEvent,
+    QClipboard, QAction, QPixmap, QTextCursor
+)
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QLineEdit, QTextEdit, QPlainTextEdit,
+    QCheckBox, QFileDialog, QMessageBox, QTabWidget, QSplitter,
+    QProgressBar, QFrame, QScrollArea, QTableWidget, QTableWidgetItem,
+    QHeaderView, QGroupBox, QStatusBar, QSizePolicy, QStyle
+)
 
 from core import (
     normalize_ai_path,
-    parse_ai_blocks,
+    is_safe_relative_path,
     is_sensitive_path,
-    human_size,
-    MAX_ZIP_BYTES,
-    MAX_ZIP_MEMBERS,
-    MAX_ZIP_UNCOMPRESSED_BYTES,
-    MAX_ZIP_SINGLE_FILE_BYTES,
-    TEXT_EXTENSIONS,
-    TEXT_FILENAMES,
-    AI_PRIMARY_PROMPT,
-    AI_CONTINUE_PROMPT,
-    AI_REVIEW_PROMPT
+    is_text_file,
+    estimate_tokens,
+    safe_extract_zip,
+    scan_and_format_repo,
+    parse_ai_output,
+    create_patch_zip,
+    write_parsed_files_to_dir,
+    generate_ascii_tree,
+    SecurityError,
+    ZipSecurityConfig
 )
 
-def decode_text(data: bytes) -> str:
-    # UTF-8 BOM
-    if data.startswith(b'\xef\xbb\xbf'):
-        data = data[3:]
-    elif data.startswith(b'\xff\xfe'):
+def get_resource_path(filename: str) -> str:
+    """Get absolute path to resource, works for dev and for PyInstaller bundle."""
+    if hasattr(sys, '_MEIPASS'):
+        bundle_path = getattr(sys, '_MEIPASS')
+        target = os.path.join(bundle_path, filename)
+        if os.path.exists(target):
+            return target
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    target = os.path.join(base_dir, filename)
+    if os.path.exists(target):
+        return target
+    # Fallback to public folder
+    pub_target = os.path.join(base_dir, 'public', filename)
+    if os.path.exists(pub_target):
+        return pub_target
+    return filename
+
+
+# ==========================================
+# Background Workers for Non-Blocking Operations
+# ==========================================
+
+class ExportWorker(QThread):
+    finished_signal = Signal(dict)
+    error_signal = Signal(str)
+    progress_signal = Signal(str)
+
+    def __init__(self, zip_path: str, base64_binaries: bool, exclude_patterns: List[str]):
+        super().__init__()
+        self.zip_path = zip_path
+        self.base64_binaries = base64_binaries
+        self.exclude_patterns = exclude_patterns
+
+    def run(self):
+        start_time = time.time()
+        temp_dir = tempfile.mkdtemp(prefix="ziptotxt_export_")
         try:
-            return data[2:].decode('utf-16le')
-        except Exception:
-            pass
+            self.progress_signal.emit("正在安全解压 ZIP 仓库...")
+            extract_dir, extracted_files = safe_extract_zip(self.zip_path, temp_dir)
 
-    for enc in ('utf-8', 'gb18030', 'big5', 'shift_jis', 'windows-1252', 'latin1'):
+            self.progress_signal.emit(f"正在扫描并构建代码树 (共 {len(extracted_files)} 个文件)...")
+            txt_content, files_info = scan_and_format_repo(
+                extract_dir,
+                base64_binaries=self.base64_binaries,
+                exclude_patterns=self.exclude_patterns
+            )
+
+            ascii_tree = generate_ascii_tree(extract_dir, exclude_patterns=self.exclude_patterns)
+            tokens = estimate_tokens(txt_content)
+            elapsed = time.time() - start_time
+
+            total_lines = sum(f.get('lines', 0) for f in files_info if f.get('is_text'))
+            text_count = sum(1 for f in files_info if f.get('is_text'))
+            bin_count = len(files_info) - text_count
+
+            result = {
+                "txt_content": txt_content,
+                "ascii_tree": ascii_tree,
+                "files_info": files_info,
+                "total_files": len(files_info),
+                "text_count": text_count,
+                "bin_count": bin_count,
+                "total_lines": total_lines,
+                "tokens": tokens,
+                "elapsed": elapsed,
+                "source_zip": self.zip_path
+            }
+            self.finished_signal.emit(result)
+
+        except Exception as e:
+            self.error_signal.emit(str(e))
+        finally:
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+class ImportWorker(QThread):
+    finished_signal = Signal(dict)
+    error_signal = Signal(str)
+
+    def __init__(self, raw_markdown: str):
+        super().__init__()
+        self.raw_markdown = raw_markdown
+
+    def run(self):
         try:
-            return data.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return data.decode('utf-8', errors='replace')
+            parsed = parse_ai_output(self.raw_markdown)
+            self.finished_signal.emit(parsed)
+        except Exception as e:
+            self.error_signal.emit(str(e))
 
-def is_binary_bytes(filename: str, data: bytes) -> bool:
-    name = os.path.basename(filename)
-    ext = os.path.splitext(name)[1].lower()
-    if name in TEXT_FILENAMES or ext in TEXT_EXTENSIONS:
-        return False
-    sample = data[:8192]
-    if b'\x00' in sample:
-        return True
-    try:
-        sample.decode('utf-8')
-        return False
-    except UnicodeDecodeError:
-        try:
-            sample.decode('gb18030')
-            return False
-        except UnicodeDecodeError:
-            return True
 
-def build_tree(paths: List[str], root_name: str) -> List[str]:
-    tree = {}
-    for p in paths:
-        parts = p.split('/')
-        curr = tree
-        for part in parts:
-            curr = curr.setdefault(part, {})
+# ==========================================
+# Custom UI Components
+# ==========================================
 
-    lines = [f"{root_name}/"]
-    def walk(node, prefix=""):
-        items = sorted(node.keys())
-        for idx, item in enumerate(items):
-            is_last = (idx == len(items) - 1)
-            connector = "└── " if is_last else "├── "
-            next_prefix = prefix + ("    " if is_last else "│   ")
-            lines.append(f"{prefix}{connector}{item}")
-            if node[item]:
-                walk(node[item], next_prefix)
-    walk(tree, "")
-    return lines
+class DropArea(QFrame):
+    fileDropped = Signal(str)
 
-def get_resource_path(relative_path: str) -> str:
-    base_path = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
-    return os.path.join(base_path, relative_path)
+    def __init__(self, title: str, subtitle: str, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setObjectName("DropArea")
+        self.is_hovered = False
 
-class ZipToTxtApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("ZipToTxt - AI Code Workspace 3.1")
-        self.root.geometry("820x620")
-        self.root.minsize(680, 500)
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(20, 24, 20, 24)
+        layout.setSpacing(8)
 
-        # Set Window and Taskbar Icon
+        self.icon_label = QLabel("📥")
+        self.icon_label.setStyleSheet("font-size: 32px; background: transparent;")
+        self.icon_label.setAlignment(Qt.AlignCenter)
+
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("font-size: 15px; font-weight: 600; color: #f1f5f9; background: transparent;")
+        self.title_label.setAlignment(Qt.AlignCenter)
+
+        self.subtitle_label = QLabel(subtitle)
+        self.subtitle_label.setStyleSheet("font-size: 12px; color: #94a3b8; background: transparent;")
+        self.subtitle_label.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(self.icon_label)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.subtitle_label)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls() or event.mimeData().hasText():
+            event.acceptProposedAction()
+            self.setStyleSheet("""
+                #DropArea {
+                    border: 2px dashed #6366f1;
+                    background-color: rgba(99, 102, 241, 0.12);
+                    border-radius: 12px;
+                }
+            """)
+
+    def dragLeaveEvent(self, event):
+        self.setStyleSheet("")
+
+    def dropEvent(self, event: QDropEvent):
+        self.setStyleSheet("")
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if urls:
+                file_path = urls[0].toLocalFile()
+                if file_path:
+                    self.fileDropped.emit(file_path)
+                    event.acceptProposedAction()
+        elif event.mimeData().hasText():
+            text = event.mimeData().text()
+            if os.path.isfile(text.strip()):
+                self.fileDropped.emit(text.strip())
+                event.acceptProposedAction()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.fileDropped.emit("__CLICK__")
+
+
+# ==========================================
+# Main Window Application
+# ==========================================
+
+class ZipToTxtMainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("ZipToTxt · AI Code Workspace (v3.1.0)")
+        self.setMinimumSize(1020, 680)
+        self.resize(1140, 760)
+        self.setAcceptDrops(True)
+
+        # State storage
+        self.last_export_data: Optional[Dict] = None
+        self.last_parsed_files: Optional[Dict] = None
+
         self.setup_app_icon()
+        self.apply_theme()
+        self.init_ui()
 
-        # Style
-        self.style = ttk.Style()
-        try:
-            self.style.theme_use('clam')
-        except Exception:
-            pass
+    def setup_app_icon(self):
+        ico_path = get_resource_path("app.ico")
+        png_path = get_resource_path("app_icon.png")
+        if os.path.exists(ico_path):
+            self.setWindowIcon(QIcon(ico_path))
+        elif os.path.exists(png_path):
+            self.setWindowIcon(QIcon(png_path))
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def apply_theme(self):
+        # Modern Slate Dark Palette with Indigo accents
+        qss = """
+        QMainWindow {
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        QWidget {
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 13px;
+        }
+        QTabWidget::pane {
+            border: 1px solid #1e293b;
+            background: #0f172a;
+            border-radius: 8px;
+            top: -1px;
+        }
+        QTabBar::tab {
+            background: #1e293b;
+            color: #94a3b8;
+            padding: 10px 20px;
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+            margin-right: 4px;
+            font-weight: 500;
+        }
+        QTabBar::tab:selected {
+            background: #334155;
+            color: #ffffff;
+            border-bottom: 2px solid #6366f1;
+            font-weight: 600;
+        }
+        QTabBar::tab:hover:!selected {
+            background: #283548;
+            color: #cbd5e1;
+        }
+        #DropArea {
+            border: 2px dashed #334155;
+            background-color: #1e293b;
+            border-radius: 12px;
+        }
+        #DropArea:hover {
+            border-color: #475569;
+            background-color: #243044;
+        }
+        QGroupBox {
+            border: 1px solid #334155;
+            border-radius: 8px;
+            margin-top: 14px;
+            padding-top: 16px;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 8px;
+            left: 12px;
+            color: #818cf8;
+        }
+        QLineEdit, QTextEdit, QPlainTextEdit {
+            background-color: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 8px;
+            color: #f8fafc;
+            selection-background-color: #6366f1;
+        }
+        QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+            border: 1px solid #6366f1;
+        }
+        QPushButton {
+            background-color: #334155;
+            color: #f8fafc;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-weight: 500;
+        }
+        QPushButton:hover {
+            background-color: #475569;
+        }
+        QPushButton:pressed {
+            background-color: #1e293b;
+        }
+        QPushButton#PrimaryButton {
+            background-color: #4f46e5;
+            border: 1px solid #6366f1;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        QPushButton#PrimaryButton:hover {
+            background-color: #6366f1;
+        }
+        QPushButton#PrimaryButton:pressed {
+            background-color: #4338ca;
+        }
+        QPushButton#SuccessButton {
+            background-color: #059669;
+            border: 1px solid #10b981;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        QPushButton#SuccessButton:hover {
+            background-color: #10b981;
+        }
+        QTableWidget {
+            background-color: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            gridline-color: #334155;
+            color: #f8fafc;
+        }
+        QHeaderView::section {
+            background-color: #0f172a;
+            color: #94a3b8;
+            padding: 6px;
+            border: 1px solid #334155;
+            font-weight: 600;
+        }
+        QProgressBar {
+            border: 1px solid #334155;
+            border-radius: 4px;
+            text-align: center;
+            background-color: #1e293b;
+            color: #f8fafc;
+        }
+        QProgressBar::chunk {
+            background-color: #6366f1;
+            border-radius: 3px;
+        }
+        QStatusBar {
+            background-color: #0b1120;
+            color: #94a3b8;
+            border-top: 1px solid #1e293b;
+        }
+        QCheckBox {
+            spacing: 8px;
+            color: #e2e8f0;
+        }
+        QCheckBox::indicator {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            border: 1px solid #475569;
+            background: #1e293b;
+        }
+        QCheckBox::indicator:checked {
+            background: #6366f1;
+            border-color: #818cf8;
+        }
+        """
+        self.setStyleSheet(qss)
 
-        self.tab_export = ttk.Frame(self.notebook)
-        self.tab_import = ttk.Frame(self.notebook)
-        self.tab_help = ttk.Frame(self.notebook)
+    def init_ui(self):
+        central = QWidget(self)
+        self.setCentralWidget(central)
+        main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(16, 16, 16, 8)
+        main_layout.setSpacing(12)
 
-        self.notebook.add(self.tab_export, text=" 01 · 导出仓库 (ZIP → TXT) ")
-        self.notebook.add(self.tab_import, text=" 02 · 应用 AI 修改 (AI → Patch) ")
-        self.notebook.add(self.tab_help, text=" 03 · 使用说明与规范 ")
+        # Tab Widget
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs)
+
+        # Tabs creation
+        self.tab_export = QWidget()
+        self.tab_import = QWidget()
+        self.tab_security = QWidget()
+        self.tab_help = QWidget()
 
         self.setup_export_tab()
         self.setup_import_tab()
+        self.setup_security_tab()
         self.setup_help_tab()
 
-        # Drag and Drop support
-        self.setup_drag_and_drop()
+        self.tabs.addTab(self.tab_export, "📦 01 · 仓库导出 TXT")
+        self.tabs.addTab(self.tab_import, "🧩 02 · AI 补丁还原 ZIP")
+        self.tabs.addTab(self.tab_security, "🛡️ 03 · 安全防护审计")
+        self.tabs.addTab(self.tab_help, "📖 04 · 使用说明与规范")
+
+        # Progress bar (Hidden by default)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.hide()
+        main_layout.addWidget(self.progress_bar)
 
         # Status Bar
-        self.status_var = tk.StringVar(value="就绪 · 支持文件拖拽与离线处理")
-        self.status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W, padding=(6, 3))
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("就绪 · 原生 Qt 拖拽与高分屏加速已启用")
 
-    def setup_app_icon(self):
-        # 1. Try .ico for Windows titlebar and taskbar
-        ico_path = get_resource_path("app.ico")
-        if os.path.exists(ico_path):
-            try:
-                self.root.iconbitmap(ico_path)
-            except Exception:
-                pass
+    # ==========================================
+    # Global Drag & Drop Handler
+    # ==========================================
 
-        # 2. Try .png as fallback/photo icon
-        png_path = get_resource_path("app_icon.png")
-        if os.path.exists(png_path):
-            try:
-                self._icon_img = tk.PhotoImage(file=png_path)
-                self.root.iconphoto(True, self._icon_img)
-            except Exception:
-                pass
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
 
-    def setup_drag_and_drop(self):
-        if sys.platform == 'win32' and HAS_WINDND:
-            try:
-                windnd.hook_dropfiles(self.root, func=self.on_drop_files)
-            except Exception:
-                pass
-
-    def on_drop_files(self, files):
-        if not files:
+    def dropEvent(self, event: QDropEvent):
+        urls = event.mimeData().urls()
+        if not urls:
             return
-        for f in files:
-            if isinstance(f, bytes):
-                try:
-                    f = f.decode('utf-8')
-                except UnicodeDecodeError:
-                    f = f.decode('gbk', errors='ignore')
-            f_str = str(f).strip()
-            if os.path.isfile(f_str):
-                if f_str.lower().endswith('.zip'):
-                    self.zip_path_var.set(f_str)
-                    self.status_var.set(f"已通过拖拽载入: {os.path.basename(f_str)}")
-                    try:
-                        self.notebook.select(self.tab_export)
-                    except Exception:
-                        pass
-                    break
-                elif f_str.lower().endswith(('.txt', '.md', '.patch')):
-                    try:
-                        with open(f_str, 'r', encoding='utf-8', errors='ignore') as fp:
-                            content = fp.read()
-                        self.import_text.delete('1.0', tk.END)
-                        self.import_text.insert('1.0', content)
-                        self.status_var.set(f"已载入 AI 响应文本: {os.path.basename(f_str)}")
-                        self.notebook.select(self.tab_import)
-                    except Exception:
-                        pass
-                    break
+        file_path = urls[0].toLocalFile()
+        if not file_path:
+            return
+
+        if file_path.lower().endswith('.zip'):
+            self.export_path_input.setText(file_path)
+            self.tabs.setCurrentWidget(self.tab_export)
+            self.status_bar.showMessage(f"已载入 ZIP: {os.path.basename(file_path)}")
+            self.run_export_scan()
+        elif file_path.lower().endswith(('.txt', '.md', '.patch')):
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                self.import_input.setPlainText(content)
+                self.tabs.setCurrentWidget(self.tab_import)
+                self.status_bar.showMessage(f"已载入 AI 补丁文本: {os.path.basename(file_path)}")
+                self.run_import_parse()
+            except Exception as e:
+                QMessageBox.warning(self, "读取错误", f"无法读取文件: {e}")
+
+    # ==========================================
+    # Tab 1: Export Tab Setup
+    # ==========================================
 
     def setup_export_tab(self):
-        f = self.tab_export
-        # Top selection
-        top_frame = ttk.LabelFrame(f, text="选择源 ZIP 代码压缩包", padding=10)
-        top_frame.pack(fill=tk.X, padx=10, pady=5)
+        layout = QVBoxLayout(self.tab_export)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
 
-        self.zip_path_var = tk.StringVar()
-        entry = ttk.Entry(top_frame, textvariable=self.zip_path_var, state="readonly")
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        # Top Drag & Drop Area
+        self.export_drop_area = DropArea(
+            "拖拽 GitHub / 项目 ZIP 压缩包到此处",
+            "或点击此处选择本地文件 (支持自动递归扫描、ASCII 树构建与智能 Token 估算)"
+        )
+        self.export_drop_area.fileDropped.connect(self.on_export_file_dropped)
+        layout.addWidget(self.export_drop_area)
 
-        btn_browse = ttk.Button(top_frame, text="浏览选择...", command=self.on_browse_zip)
-        btn_browse.pack(side=tk.RIGHT)
+        # File Selection & Options Bar
+        opts_box = QFrame()
+        opts_box.setStyleSheet("background: #1e293b; border-radius: 8px; padding: 6px;")
+        opts_layout = QHBoxLayout(opts_box)
+        opts_layout.setContentsMargins(8, 6, 8, 6)
+        opts_layout.setSpacing(10)
 
-        # Options
-        opt_frame = ttk.Frame(f)
-        opt_frame.pack(fill=tk.X, padx=10, pady=5)
+        opts_layout.addWidget(QLabel("目标 ZIP 路径:"))
+        self.export_path_input = QLineEdit()
+        self.export_path_input.setPlaceholderText("请选择或拖入 .zip 仓库文件...")
+        opts_layout.addWidget(self.export_path_input, 1)
 
-        self.filter_cache_var = tk.BooleanVar(value=True)
-        chk_cache = ttk.Checkbutton(opt_frame, text="自动过滤 node_modules / .git / .venv / __pycache__ 等缓存", variable=self.filter_cache_var)
-        chk_cache.pack(side=tk.LEFT)
+        browse_btn = QPushButton("浏览...")
+        browse_btn.clicked.connect(self.browse_export_zip)
+        opts_layout.addWidget(browse_btn)
 
-        # Action Buttons
-        act_frame = ttk.Frame(f)
-        act_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.chk_base64 = QCheckBox("Base64 嵌入二进制文件")
+        opts_layout.addWidget(self.chk_base64)
 
-        self.btn_export = ttk.Button(act_frame, text="开始生成 TXT 导出报告", command=self.on_start_export)
-        self.btn_export.pack(side=tk.LEFT, padx=(0, 10))
+        self.btn_run_export = QPushButton("🚀 开始解析生成 TXT")
+        self.btn_run_export.setObjectName("PrimaryButton")
+        self.btn_run_export.clicked.connect(self.run_export_scan)
+        opts_layout.addWidget(self.btn_run_export)
 
-        self.btn_copy_prompt = ttk.Button(act_frame, text="复制 AI 主 Prompt", command=self.on_copy_primary_prompt)
-        self.btn_copy_prompt.pack(side=tk.LEFT)
+        layout.addWidget(opts_box)
 
-        # Log & Preview
-        log_frame = ttk.LabelFrame(f, text="导出与解析进度日志", padding=10)
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # Stats Cards Banner
+        self.stats_banner = QFrame()
+        self.stats_banner.setStyleSheet("background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 6px;")
+        stats_layout = QHBoxLayout(self.stats_banner)
+        stats_layout.setContentsMargins(12, 6, 12, 6)
 
-        self.export_log = tk.Text(log_frame, wrap=tk.WORD, font=("Consolas", 9))
-        self.export_log.pack(fill=tk.BOTH, expand=True)
+        self.stat_files_lbl = QLabel("📁 文件总数: 0")
+        self.stat_lines_lbl = QLabel("📝 代码总行数: 0")
+        self.stat_tokens_lbl = QLabel("⚡ 预估 Token: ~0")
+        self.stat_time_lbl = QLabel("⏱️ 耗时: 0s")
+
+        for lbl in [self.stat_files_lbl, self.stat_lines_lbl, self.stat_tokens_lbl, self.stat_time_lbl]:
+            lbl.setStyleSheet("color: #cbd5e1; font-weight: 500;")
+            stats_layout.addWidget(lbl)
+        stats_layout.addStretch()
+
+        self.btn_copy_prompt = QPushButton("📋 一键复制完整 Prompt")
+        self.btn_copy_prompt.clicked.connect(self.copy_export_prompt)
+        self.btn_save_txt = QPushButton("💾 保存为 .txt 文件")
+        self.btn_save_txt.setObjectName("SuccessButton")
+        self.btn_save_txt.clicked.connect(self.save_export_txt)
+
+        self.btn_copy_prompt.setEnabled(False)
+        self.btn_save_txt.setEnabled(False)
+
+        stats_layout.addWidget(self.btn_copy_prompt)
+        stats_layout.addWidget(self.btn_save_txt)
+        layout.addWidget(self.stats_banner)
+
+        # Content Splitter (ASCII Tree vs TXT Preview)
+        splitter = QSplitter(Qt.Horizontal)
+
+        # Left: ASCII Tree
+        tree_widget = QWidget()
+        tree_layout = QVBoxLayout(tree_widget)
+        tree_layout.setContentsMargins(0, 0, 0, 0)
+        tree_layout.addWidget(QLabel("🌲 仓库目录树 (ASCII Tree):"))
+        self.ascii_tree_text = QPlainTextEdit()
+        self.ascii_tree_text.setReadOnly(True)
+        self.ascii_tree_text.setFont(QFont("Consolas", 10))
+        tree_layout.addWidget(self.ascii_tree_text)
+        splitter.addWidget(tree_widget)
+
+        # Right: Full TXT Preview
+        preview_widget = QWidget()
+        preview_layout = QVBoxLayout(preview_widget)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.addWidget(QLabel("📄 完整 TXT 导出预览 (已自动装配 AI 结构化 Prompt):"))
+        self.export_preview_text = QPlainTextEdit()
+        self.export_preview_text.setReadOnly(True)
+        self.export_preview_text.setFont(QFont("Consolas", 10))
+        preview_layout.addWidget(self.export_preview_text)
+        splitter.addWidget(preview_widget)
+
+        splitter.setSizes([360, 640])
+        layout.addWidget(splitter, 1)
+
+    def on_export_file_dropped(self, val: str):
+        if val == "__CLICK__":
+            self.browse_export_zip()
+        else:
+            self.export_path_input.setText(val)
+            self.run_export_scan()
+
+    def browse_export_zip(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择 GitHub / 项目 ZIP 压缩包", "", "ZIP 压缩文件 (*.zip);;所有文件 (*.*)"
+        )
+        if path:
+            self.export_path_input.setText(path)
+            self.run_export_scan()
+
+    def run_export_scan(self):
+        zip_path = self.export_path_input.text().strip()
+        if not zip_path:
+            QMessageBox.warning(self, "提示", "请先选择或拖入 ZIP 压缩包！")
+            return
+        if not os.path.isfile(zip_path):
+            QMessageBox.warning(self, "错误", f"找不到文件: {zip_path}")
+            return
+
+        self.btn_run_export.setEnabled(False)
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.show()
+        self.status_bar.showMessage("正在解析仓库中...")
+
+        self.export_worker = ExportWorker(
+            zip_path,
+            base64_binaries=self.chk_base64.isChecked(),
+            exclude_patterns=[]
+        )
+        self.export_worker.progress_signal.connect(self.status_bar.showMessage)
+        self.export_worker.finished_signal.connect(self.on_export_success)
+        self.export_worker.error_signal.connect(self.on_export_error)
+        self.export_worker.start()
+
+    def on_export_success(self, data: dict):
+        self.progress_bar.hide()
+        self.btn_run_export.setEnabled(True)
+        self.last_export_data = data
+
+        self.ascii_tree_text.setPlainText(data["ascii_tree"])
+        self.export_preview_text.setPlainText(data["txt_content"])
+
+        self.stat_files_lbl.setText(f"📁 文件数: {data['total_files']} (文本 {data['text_count']}, 二进制 {data['bin_count']})")
+        self.stat_lines_lbl.setText(f"📝 代码行: {data['total_lines']:,}")
+        self.stat_tokens_lbl.setText(f"⚡ 预估 Token: ~{data['tokens']:,}")
+        self.stat_time_lbl.setText(f"⏱️ 耗时: {data['elapsed']:.2f}s")
+
+        self.btn_copy_prompt.setEnabled(True)
+        self.btn_save_txt.setEnabled(True)
+        self.status_bar.showMessage(f"解析成功！共导出 {data['total_files']} 个文件 (~{data['tokens']:,} Tokens)")
+
+    def on_export_error(self, err_msg: str):
+        self.progress_bar.hide()
+        self.btn_run_export.setEnabled(True)
+        QMessageBox.critical(self, "导出失败", f"处理 ZIP 失败:\n{err_msg}")
+        self.status_bar.showMessage("处理失败")
+
+    def copy_export_prompt(self):
+        if not self.last_export_data:
+            return
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.last_export_data["txt_content"])
+        self.status_bar.showMessage("已复制完整 Prompt 与仓库上下文到剪贴板！可以直接发送给大模型。")
+        QMessageBox.information(self, "复制成功", "完整 Prompt 及代码上下文已复制到剪贴板！\n可以直接粘贴到 ChatGPT / Claude / Gemini / DeepSeek 中。")
+
+    def save_export_txt(self):
+        if not self.last_export_data:
+            return
+        default_name = os.path.splitext(os.path.basename(self.last_export_data["source_zip"]))[0] + "_context.txt"
+        save_path, _ = QFileDialog.getSaveFileName(self, "保存结构化 TXT 文件", default_name, "文本文件 (*.txt);;所有文件 (*.*)")
+        if save_path:
+            try:
+                with open(save_path, 'w', encoding='utf-8') as f:
+                    f.write(self.last_export_data["txt_content"])
+                self.status_bar.showMessage(f"已保存: {save_path}")
+                QMessageBox.information(self, "保存成功", f"文件已保存至:\n{save_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "保存失败", f"无法写入文件:\n{e}")
+
+    # ==========================================
+    # Tab 2: Import & Patch Setup
+    # ==========================================
 
     def setup_import_tab(self):
-        f = self.tab_import
-        lbl_info = ttk.Label(f, text="在此粘贴 AI 响应内容（兼容 ### FILE: path / **FILE:** 等标记）：")
-        lbl_info.pack(anchor=tk.W, padx=10, pady=(10, 2))
+        layout = QVBoxLayout(self.tab_import)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
 
-        self.import_text = tk.Text(f, wrap=tk.NONE, font=("Consolas", 9), height=14)
-        self.import_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # Top instruction
+        top_bar = QHBoxLayout()
+        top_bar.addWidget(QLabel("在此粘贴大语言模型 (AI) 返回的完整 Markdown 响应文本，或拖入包含回答的文本文件:"))
+        top_bar.addStretch()
 
-        act_frame = ttk.Frame(f)
-        act_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.btn_load_sample = QPushButton("📝 载入示例代码")
+        self.btn_load_sample.clicked.connect(self.load_import_sample)
+        top_bar.addWidget(self.btn_load_sample)
 
-        self.allow_sensitive_var = tk.BooleanVar(value=False)
-        chk_sens = ttk.Checkbutton(act_frame, text="允许打包敏感文件 (.git, .env, 秘钥凭据)", variable=self.allow_sensitive_var)
-        chk_sens.pack(side=tk.LEFT, padx=(0, 15))
+        self.btn_clear_import = QPushButton("🗑️ 清空")
+        self.btn_clear_import.clicked.connect(lambda: self.import_input.clear())
+        top_bar.addWidget(self.btn_clear_import)
+        layout.addLayout(top_bar)
 
-        btn_parse = ttk.Button(act_frame, text="解析并生成 Patch ZIP 补丁包", command=self.on_generate_patch)
-        btn_parse.pack(side=tk.LEFT)
+        # Splitter: Input vs Parsed Results
+        splitter = QSplitter(Qt.Vertical)
+
+        # Upper: Input area
+        self.import_input = QPlainTextEdit()
+        self.import_input.setPlaceholderText("粘贴 AI 输出内容（包含形如 ### FILE: path/to/file.ext 的 Markdown 围栏）...")
+        self.import_input.setFont(QFont("Consolas", 10))
+        splitter.addWidget(self.import_input)
+
+        # Action Bar in Middle
+        mid_bar = QFrame()
+        mid_bar.setStyleSheet("background: #1e293b; border-radius: 8px; padding: 4px;")
+        mid_layout = QHBoxLayout(mid_bar)
+        mid_layout.setContentsMargins(8, 4, 8, 4)
+
+        self.btn_parse_import = QPushButton("⚡ 解析 AI 变更文件")
+        self.btn_parse_import.setObjectName("PrimaryButton")
+        self.btn_parse_import.clicked.connect(self.run_import_parse)
+        mid_layout.addWidget(self.btn_parse_import)
+
+        self.lbl_parsed_status = QLabel("尚未解析")
+        self.lbl_parsed_status.setStyleSheet("color: #94a3b8;")
+        mid_layout.addWidget(self.lbl_parsed_status, 1)
+
+        self.btn_download_patch = QPushButton("📦 一键生成 patch.zip 补丁包")
+        self.btn_download_patch.setObjectName("SuccessButton")
+        self.btn_download_patch.setEnabled(False)
+        self.btn_download_patch.clicked.connect(self.save_patch_zip)
+        mid_layout.addWidget(self.btn_download_patch)
+
+        self.btn_apply_folder = QPushButton("📂 直接应用到本地项目目录")
+        self.btn_apply_folder.setEnabled(False)
+        self.btn_apply_folder.clicked.connect(self.apply_to_local_directory)
+        mid_layout.addWidget(self.btn_apply_folder)
+
+        # Lower: Parsed Files Table & Code Viewer Splitter
+        lower_splitter = QSplitter(Qt.Horizontal)
+
+        # Left: Table
+        self.parsed_table = QTableWidget(0, 3)
+        self.parsed_table.setHorizontalHeaderLabels(["状态", "相对路径", "代码行数"])
+        self.parsed_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.parsed_table.itemSelectionChanged.connect(self.on_table_file_selected)
+        lower_splitter.addWidget(self.parsed_table)
+
+        # Right: Code Viewer
+        self.code_viewer = QPlainTextEdit()
+        self.code_viewer.setReadOnly(True)
+        self.code_viewer.setFont(QFont("Consolas", 10))
+        self.code_viewer.setPlaceholderText("在左侧表格选择文件以实时预览代码...")
+        lower_splitter.addWidget(self.code_viewer)
+
+        lower_splitter.setSizes([450, 550])
+
+        lower_container = QWidget()
+        lower_layout = QVBoxLayout(lower_container)
+        lower_layout.setContentsMargins(0, 0, 0, 0)
+        lower_layout.addWidget(mid_bar)
+        lower_layout.addWidget(lower_splitter, 1)
+
+        splitter.addWidget(lower_container)
+        splitter.setSizes([260, 420])
+        layout.addWidget(splitter, 1)
+
+    def load_import_sample(self):
+        sample = (
+            "这里是为你重构和新增的代码模块：\n\n"
+            "### FILE: src/core/engine.py\n"
+            "```python\n"
+            "import os\n"
+            "import sys\n\n"
+            "class Engine:\n"
+            "    def __init__(self, name: str):\n"
+            "        self.name = name\n\n"
+            "    def start(self):\n"
+            "        print(f'Engine {self.name} is running smoothly!')\n"
+            "```\n\n"
+            "### FILE: config/app_settings.json\n"
+            "```json\n"
+            "{\n"
+            '  "appName": "ZipToTxt",\n'
+            '  "version": "3.1.0",\n'
+            '  "debug": false\n'
+            "}\n"
+            "```\n\n"
+            "修改完成，请核对！"
+        )
+        self.import_input.setPlainText(sample)
+        self.run_import_parse()
+
+    def run_import_parse(self):
+        text = self.import_input.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "提示", "请先输入 AI 的 Markdown 响应内容！")
+            return
+
+        self.btn_parse_import.setEnabled(False)
+        self.worker_import = ImportWorker(text)
+        self.worker_import.finished_signal.connect(self.on_import_parse_success)
+        self.worker_import.error_signal.connect(self.on_import_parse_error)
+        self.worker_import.start()
+
+    def on_import_parse_success(self, parsed: dict):
+        self.btn_parse_import.setEnabled(True)
+        self.last_parsed_files = parsed
+        files = parsed.get("files", {})
+
+        self.parsed_table.setRowCount(0)
+        if not files:
+            self.lbl_parsed_status.setText("⚠️ 未识别到符合规范的 ### FILE: 标记")
+            self.btn_download_patch.setEnabled(False)
+            self.btn_apply_folder.setEnabled(False)
+            QMessageBox.warning(
+                self, "未找到文件",
+                "未能从文本中提取到任何有效代码块！\n\n请确保 AI 输出包含以下标记：\n### FILE: path/to/file.ext\n```language\n代码正文\n```"
+            )
+            return
+
+        self.lbl_parsed_status.setText(f"✅ 成功解析出 {len(files)} 个改动文件")
+        self.btn_download_patch.setEnabled(True)
+        self.btn_apply_folder.setEnabled(True)
+
+        for row, (rel_path, content) in enumerate(files.items()):
+            self.parsed_table.insertRow(row)
+            is_sens = is_sensitive_path(rel_path)
+            lines = len(content.splitlines())
+
+            status_text = "🔒 敏感" if is_sens else "✏️ 改动"
+            status_item = QTableWidgetItem(status_text)
+            if is_sens:
+                status_item.setForeground(QColor("#f87171"))
+            else:
+                status_item.setForeground(QColor("#34d399"))
+
+            path_item = QTableWidgetItem(rel_path)
+            lines_item = QTableWidgetItem(f"{lines:,} 行")
+
+            self.parsed_table.setItem(row, 0, status_item)
+            self.parsed_table.setItem(row, 1, path_item)
+            self.parsed_table.setItem(row, 2, lines_item)
+
+        self.parsed_table.selectRow(0)
+        self.status_bar.showMessage(f"解析完成，共识别到 {len(files)} 个待打补丁文件")
+
+    def on_import_parse_error(self, err: str):
+        self.btn_parse_import.setEnabled(True)
+        QMessageBox.critical(self, "解析出错", f"解析失败:\n{err}")
+
+    def on_table_file_selected(self):
+        if not self.last_parsed_files:
+            return
+        selected = self.parsed_table.selectedItems()
+        if not selected:
+            return
+        row = self.parsed_table.currentRow()
+        rel_path = self.parsed_table.item(row, 1).text()
+        content = self.last_parsed_files.get("files", {}).get(rel_path, "")
+        self.code_viewer.setPlainText(content)
+
+    def save_patch_zip(self):
+        if not self.last_parsed_files or not self.last_parsed_files.get("files"):
+            return
+        save_path, _ = QFileDialog.getSaveFileName(self, "保存补丁压缩包", "patch.zip", "ZIP 压缩文件 (*.zip)")
+        if save_path:
+            try:
+                create_patch_zip(self.last_parsed_files["files"], save_path)
+                self.status_bar.showMessage(f"补丁已生成: {save_path}")
+                QMessageBox.information(
+                    self, "补丁打包成功",
+                    f"已生成只包含 AI 改动文件的纯净补丁包：\n{save_path}\n\n可以直接解压覆盖到您的目标项目根目录！"
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "打包失败", f"无法生成 patch.zip:\n{e}")
+
+    def apply_to_local_directory(self):
+        if not self.last_parsed_files or not self.last_parsed_files.get("files"):
+            return
+        target_dir = QFileDialog.getExistingDirectory(self, "选择本地项目根目录以应用补丁")
+        if target_dir:
+            reply = QMessageBox.question(
+                self, "确认覆盖",
+                f"将写入 {len(self.last_parsed_files['files'])} 个文件到目录：\n{target_dir}\n\n确定执行覆写操作吗？",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                try:
+                    write_parsed_files_to_dir(self.last_parsed_files["files"], target_dir)
+                    self.status_bar.showMessage(f"补丁已成功应用至: {target_dir}")
+                    QMessageBox.information(self, "写入完成", "所有改动文件已精确写回本地项目目录！")
+                except Exception as e:
+                    QMessageBox.critical(self, "写入失败", f"写回本地项目失败:\n{e}")
+
+    # ==========================================
+    # Tab 3: Security Tab Setup
+    # ==========================================
+
+    def setup_security_tab(self):
+        layout = QVBoxLayout(self.tab_security)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(14)
+
+        # Overview
+        header = QLabel("🛡️ 工业级自动化安全审计机制")
+        header.setStyleSheet("font-size: 16px; font-weight: 700; color: #818cf8;")
+        layout.addWidget(header)
+
+        # Rules group
+        rules_box = QGroupBox("主动防御拦截规则一览")
+        rules_layout = QVBoxLayout(rules_box)
+        rules_layout.setSpacing(10)
+
+        rules = [
+            ("💣 Zip Bomb 防御", "限制最大压缩包体积 (512 MB)、最大解压条目数 (15,000)、总解压大小上限 (1.0 GB) 与单文件上限 (256 MB)。"),
+            ("🚷 Zip Slip 路径穿越拦截", "严格校验所有相对路径，拦截 ../, ..\\\\, 绝对路径前缀及 Windows 设备保留名 (CON, PRN, AUX, NUL, COM1-9 等)。"),
+            ("🔗 符号链接越权拦截", "拒绝所有 Symlink/Hardlink 软硬链接，杜绝通过恶意链接逃逸读取宿主机敏感凭据。"),
+            ("🔑 敏感文件过滤与警示", "自动检测并保护 .git, .env*, id_rsa, keystore.jks, *.pem, *.p12 等私钥证书文件。")
+        ]
+
+        for title, desc in rules:
+            card = QFrame()
+            card.setStyleSheet("background: #1e293b; border-radius: 6px; padding: 10px;")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(6, 4, 6, 4)
+            card_layout.setSpacing(4)
+            t_lbl = QLabel(title)
+            t_lbl.setStyleSheet("font-weight: 600; color: #38bdf8;")
+            d_lbl = QLabel(desc)
+            d_lbl.setStyleSheet("color: #94a3b8;")
+            card_layout.addWidget(t_lbl)
+            card_layout.addWidget(d_lbl)
+            rules_layout.addWidget(card)
+
+        layout.addWidget(rules_box)
+
+        # Live Path Tester
+        tester_box = QGroupBox("🔍 实时路径安全检测器 (Interactive Path Validator)")
+        tester_layout = QHBoxLayout(tester_box)
+        tester_layout.addWidget(QLabel("测试相对路径:"))
+
+        self.path_test_input = QLineEdit()
+        self.path_test_input.setPlaceholderText("例如: ../etc/passwd 或 src/main.py 或 .env.production")
+        self.path_test_input.textChanged.connect(self.on_test_path_changed)
+        tester_layout.addWidget(self.path_test_input, 1)
+
+        self.lbl_path_test_result = QLabel("请输入路径测试")
+        self.lbl_path_test_result.setStyleSheet("font-weight: 600; padding: 4px 8px; border-radius: 4px;")
+        tester_layout.addWidget(self.lbl_path_test_result)
+
+        layout.addWidget(tester_box)
+        layout.addStretch()
+
+    def on_test_path_changed(self, text: str):
+        text = text.strip()
+        if not text:
+            self.lbl_path_test_result.setText("请输入路径测试")
+            self.lbl_path_test_result.setStyleSheet("color: #94a3b8;")
+            return
+
+        is_safe = is_safe_relative_path(text)
+        is_sens = is_sensitive_path(text)
+
+        if not is_safe:
+            self.lbl_path_test_result.setText("❌ 危险: 路径穿越/非法设备名拦截")
+            self.lbl_path_test_result.setStyleSheet("color: #f87171; background: rgba(248, 113, 113, 0.15);")
+        elif is_sens:
+            self.lbl_path_test_result.setText("⚠️ 敏感: 包含密钥/凭证文件")
+            self.lbl_path_test_result.setStyleSheet("color: #fbbf24; background: rgba(251, 191, 36, 0.15);")
+        else:
+            self.lbl_path_test_result.setText("✅ 安全: 允许正常读写")
+            self.lbl_path_test_result.setStyleSheet("color: #34d399; background: rgba(52, 211, 153, 0.15);")
+
+    # ==========================================
+    # Tab 4: Help Tab Setup
+    # ==========================================
 
     def setup_help_tab(self):
-        f = self.tab_help
-        txt = tk.Text(f, wrap=tk.WORD, font=("Segoe UI", 10), padx=15, pady=15)
-        txt.pack(fill=tk.BOTH, expand=True)
+        layout = QVBoxLayout(self.tab_help)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
-        help_content = """ZipToTxt 使用指南与安全规范：
+        help_text = QTextEdit()
+        help_text.setReadOnly(True)
+        help_text.setHtml("""
+        <h3 style="color: #818cf8; margin-top: 0;">📖 ZipToTxt 核心工作流程与 Prompt 规范</h3>
+        <p style="color: #cbd5e1; line-height: 1.6;">
+        ZipToTxt 是专为大语言模型（Claude 3.5 Sonnet, GPT-4o, Gemini 1.5 Pro, DeepSeek-V3 等）工程化研发设计的上下文提取与代码补丁还原工具。
+        </p>
 
-1. 导出仓库 (ZIP → TXT)
-   - 选择或拖入 GitHub/本地代码库 ZIP 包。
-   - 自动生成标准化目录树结构、SHA-256 哈希校验与完整源码。
-   - 默认自动过滤 node_modules, .git, .venv, dist 等垃圾目录以节省 AI 上下文。
+        <h4 style="color: #38bdf8;">📌 第一步：导出仓库 TXT 上下文</h4>
+        <ol style="color: #94a3b8; line-height: 1.8;">
+            <li>在「01 · 仓库导出 TXT」页面拖入任意 GitHub/本地 ZIP 压缩包；</li>
+            <li>点击「🚀 开始解析生成 TXT」，程序自动剔除单层根目录并生成 ASCII 树状图；</li>
+            <li>点击「📋 一键复制完整 Prompt」，将导出的完整项目上下文发送给 AI。</li>
+        </ol>
 
-2. 应用 AI 修改 (AI → Patch ZIP)
-   - 将 AI 输出的完整代码粘贴至第二页。
-   - 点击“解析并生成 Patch ZIP 补丁包”，即可得到 ai_patch.zip。
-   - 解压覆盖至原工程目录即可完成更新。
+        <h4 style="color: #38bdf8;">📌 第二步：要求 AI 遵守输出格式</h4>
+        <p style="color: #94a3b8;">
+        为确保能 100% 精确生成补丁，请在 Prompt 中要求 AI 使用如下格式输出改动文件：
+        </p>
+        <pre style="background: #1e293b; color: #34d399; padding: 10px; border-radius: 6px; font-family: Consolas;">
+### FILE: path/to/file.ext
+```language
+// 完整的、可直接运行的代码内容
+```
+        </pre>
 
-3. 安全防御体系
-   - 防路径穿越 (Zip Slip) 防御：严格拦截包含 .. 的恶意路径。
-   - Windows 保留字拦截：自动过滤 CON, PRN, AUX, NUL 等系统保留名。
-   - 解压炸弹防护：单文件最大 256MB，解压总容量上限 1GB。
-   - 100% 本地运算：完全在本地设备执行，绝不向外网传输任何源码。
-"""
-        txt.insert(tk.END, help_content)
-        txt.config(state=tk.DISABLED)
+        <h4 style="color: #38bdf8;">📌 第三步：还原 AI 补丁为 ZIP</h4>
+        <ol style="color: #94a3b8; line-height: 1.8;">
+            <li>复制 AI 的回答并粘贴到「02 · AI 补丁还原 ZIP」；</li>
+            <li>点击「⚡ 解析 AI 变更文件」，左侧将列出所有变更文件并支持 Diff 预览；</li>
+            <li>点击「📦 一键生成 patch.zip 补丁包」或「📂 直接应用到本地项目目录」。</li>
+        </ol>
+        """)
+        layout.addWidget(help_text)
 
-    def on_browse_zip(self):
-        path = filedialog.askopenfilename(filetypes=[("ZIP Files", "*.zip")])
-        if path:
-            self.zip_path_var.set(path)
-            self.status_var.set(f"已选择文件: {os.path.basename(path)}")
 
-    def on_copy_primary_prompt(self):
-        self.root.clipboard_clear()
-        self.root.clipboard_append(AI_PRIMARY_PROMPT)
-        messagebox.showinfo("提示", "AI 主 Prompt 已复制到剪贴板！")
-
-    def on_start_export(self):
-        path = self.zip_path_var.get()
-        if not path or not os.path.isfile(path):
-            messagebox.showerror("错误", "请先选择有效的 ZIP 压缩包文件！")
-            return
-
-        out_txt = os.path.splitext(path)[0] + ".txt"
-        save_path = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            initialfile=os.path.basename(out_txt),
-            filetypes=[("Text Files", "*.txt")]
-        )
-        if not save_path:
-            return
-
-        self.export_log.delete("1.0", tk.END)
-        self.export_log.insert(tk.END, f"正在分析处理: {path}\n")
-        self.btn_export.config(state=tk.DISABLED)
-
-        threading.Thread(target=self._run_export, args=(path, save_path), daemon=True).start()
-
-    def _run_export(self, zip_path: str, save_path: str):
-        try:
-            ignored_folders = {'node_modules', '.git', '.venv', 'venv', '__pycache__', 'dist', 'build', '.next'}
-            filter_ignored = self.filter_cache_var.get()
-
-            with zipfile.ZipFile(zip_path, 'r') as z:
-                infolist = z.infolist()
-                valid_members = []
-                for info in infolist:
-                    if info.is_dir():
-                        continue
-                    name = info.filename.replace('\\', '/')
-                    if filter_ignored and any(part.lower() in ignored_folders for part in name.split('/')):
-                        continue
-                    valid_members.append(info)
-
-                if not valid_members:
-                    raise ValueError("ZIP 中无有效文件")
-
-                common_prefix = ""
-                parts0 = valid_members[0].filename.replace('\\', '/').split('/')
-                if len(parts0) > 1:
-                    cand = parts0[0] + '/'
-                    if all(m.filename.replace('\\', '/').startswith(cand) for m in valid_members):
-                        common_prefix = cand
-
-                root_disp = common_prefix.rstrip('/') if common_prefix else os.path.basename(zip_path).rsplit('.', 1)[0]
-                rel_paths = []
-
-                for m in valid_members:
-                    raw = m.filename.replace('\\', '/')
-                    rel = raw[len(common_prefix):] if common_prefix else raw
-                    rel_paths.append(normalize_ai_path(rel))
-
-                tree_lines = build_tree(rel_paths, root_disp)
-
-                header = [
-                    "=" * 100,
-                    "REPOSITORY EXPORT",
-                    "=" * 100,
-                    f"SOURCE ZIP: {os.path.basename(zip_path)}",
-                    f"FILE COUNT: {len(valid_members)}",
-                    "=" * 100,
-                    "DIRECTORY STRUCTURE",
-                    "=" * 100,
-                    "\n".join(tree_lines),
-                    "",
-                    "=" * 100,
-                    "FILE CONTENTS",
-                    "=" * 100,
-                ]
-
-                file_sections = []
-                for idx, m in enumerate(valid_members):
-                    rel = rel_paths[idx]
-                    data = z.read(m)
-                    h = hashlib.sha256(data).hexdigest()
-                    is_bin = is_binary_bytes(rel, data)
-
-                    sec = [
-                        "",
-                        "=" * 100,
-                        f"FILE: {rel}",
-                        f"SIZE: {human_size(len(data))} ({len(data)} bytes)",
-                        f"SHA-256: {h}",
-                    ]
-                    if is_bin:
-                        sec.append("TYPE: BINARY")
-                        sec.append("CONTENT: NOT EMBEDDED (metadata only)")
-                    else:
-                        sec.append("TYPE: TEXT")
-                        sec.append("=" * 100)
-                        sec.append(decode_text(data))
-
-                    file_sections.append("\n".join(sec))
-
-                full_content = "\n".join(header) + "\n" + "\n".join(file_sections) + "\n"
-
-                with open(save_path, 'w', encoding='utf-8') as f:
-                    f.write(full_content)
-
-            self.root.after(0, self._on_export_success, save_path, len(valid_members))
-        except Exception as e:
-            self.root.after(0, self._on_export_error, str(e))
-
-    def _on_export_success(self, save_path, count):
-        self.btn_export.config(state=tk.NORMAL)
-        self.export_log.insert(tk.END, f"\n[成功] 已生成 TXT: {save_path}\n共收录 {count} 个文件\n")
-        self.status_var.set(f"导出成功 · 共 {count} 个文件")
-        messagebox.showinfo("成功", f"导出成功！\n文件已保存至：\n{save_path}")
-
-    def _on_export_error(self, err_msg):
-        self.btn_export.config(state=tk.NORMAL)
-        self.export_log.insert(tk.END, f"\n[错误] {err_msg}\n")
-        self.status_var.set("导出失败")
-        messagebox.showerror("导出失败", f"处理失败: {err_msg}")
-
-    def on_generate_patch(self):
-        text = self.import_text.get("1.0", tk.END).strip()
-        if not text:
-            messagebox.showerror("错误", "请先粘贴 AI 输出内容！")
-            return
-
-        try:
-            files_map = parse_ai_blocks(text)
-            allow_sens = self.allow_sensitive_var.get()
-
-            for path in files_map.keys():
-                if is_sensitive_path(path) and not allow_sens:
-                    raise ValueError(f"检测到受保护敏感文件: {path}，请勾选允许敏感文件后重试。")
-
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".zip",
-                initialfile="ai_patch.zip",
-                filetypes=[("ZIP Files", "*.zip")]
-            )
-            if not save_path:
-                return
-
-            with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_DEFLATED) as z:
-                for path, content in files_map.items():
-                    z.writestr(path, content.encode('utf-8'))
-
-            messagebox.showinfo("成功", f"成功生成补丁包！\n包含 {len(files_map)} 个修改文件：\n{save_path}")
-            self.status_var.set(f"补丁生成成功 · 共 {len(files_map)} 个文件")
-        except Exception as e:
-            messagebox.showerror("生成补丁失败", str(e))
-            self.status_var.set("生成补丁失败")
+# ==========================================
+# Application Entry Point
+# ==========================================
 
 def main():
-    # Set Windows Taskbar AppUserModelID to ensure taskbar icon displays properly
+    # Set Windows Process AppUserModelID for crisp taskbar icon grouping
     if sys.platform == 'win32':
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ziptotxt.ai.workspace.v3")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ZipToTxt.App.Workspace.v3.1")
         except Exception:
             pass
 
-    root = tk.Tk()
-    app = ZipToTxtApp(root)
-    root.mainloop()
+    # Enable High DPI Scaling
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+
+    app = QApplication(sys.argv)
+    app.setApplicationName("ZipToTxt")
+    app.setOrganizationName("ZipToTxt")
+
+    window = ZipToTxtMainWindow()
+    window.show()
+
+    sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
