@@ -48,6 +48,10 @@ jobs:
             --onefile `
             --windowed `
             --name "ZipToTxt" `
+            --icon="app.ico" `
+            --add-data "app.ico;." `
+            --add-data "app_icon.png;." `
+            --collect-all tkinterdnd2 `
             --additional-hooks-dir=. `
             main.py
 

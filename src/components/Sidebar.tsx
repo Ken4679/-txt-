@@ -40,9 +40,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onPageChange }) =>
       {/* App Header */}
       <div className="px-6 pt-7 pb-6 border-b border-slate-800/80">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-indigo-600/30 border border-indigo-500/40 shrink-0 bg-slate-950 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-indigo-600/40 border border-indigo-500/50 shrink-0 bg-slate-950 flex items-center justify-center">
             <img
-              src="/app-icon.svg"
+              src="/app-icon.png"
               alt="ZipToTxt Logo"
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"

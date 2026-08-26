@@ -40,9 +40,9 @@ export const HelpPage: React.FC = () => {
       {/* Title */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 text-white shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg border border-indigo-400/30 shrink-0 bg-slate-950 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg border border-indigo-400/40 shrink-0 bg-slate-950 flex items-center justify-center">
             <img
-              src="/app-icon.svg"
+              src="/app-icon.png"
               alt="ZipToTxt App Icon"
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
@@ -60,11 +60,18 @@ export const HelpPage: React.FC = () => {
         </div>
         <div className="shrink-0 flex items-center gap-2">
           <a
-            href="/app-icon.svg"
-            download="ziptotxt-icon.svg"
+            href="/app-icon.ico"
+            download="app.ico"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition-colors"
+          >
+            下载 Windows .ICO
+          </a>
+          <a
+            href="/app-icon.png"
+            download="app-icon.png"
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
           >
-            下载图标 SVG
+            下载高清 PNG
           </a>
         </div>
       </div>

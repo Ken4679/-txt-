@@ -8,10 +8,17 @@ import zipfile
 import hashlib
 from typing import Optional, List
 
+HAS_DND = False
+TkinterDnD = None
+DND_FILES = None
+
 try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD
-    HAS_DND = True
-except ImportError:
+    import tkinterdnd2
+    DND_FILES = getattr(tkinterdnd2, 'DND_FILES', None)
+    TkinterDnD = getattr(tkinterdnd2, 'TkinterDnD', None)
+    if TkinterDnD is not None:
+        HAS_DND = True
+except Exception:
     HAS_DND = False
 
 from core import (
@@ -86,12 +93,19 @@ def build_tree(paths: List[str], root_name: str) -> List[str]:
     walk(tree, "")
     return lines
 
+def get_resource_path(relative_path: str) -> str:
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath(os.path.dirname(__file__)))
+    return os.path.join(base_path, relative_path)
+
 class ZipToTxtApp:
     def __init__(self, root):
         self.root = root
         self.root.title("ZipToTxt - AI Code Workspace 3.1")
         self.root.geometry("820x620")
         self.root.minsize(680, 500)
+
+        # Set Window and Taskbar Icon
+        self.setup_app_icon()
 
         # Style
         self.style = ttk.Style()
@@ -119,6 +133,24 @@ class ZipToTxtApp:
         self.status_var = tk.StringVar(value="就绪 · 支持文件拖拽与离线处理")
         self.status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W, padding=(6, 3))
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def setup_app_icon(self):
+        # 1. Try .ico for Windows titlebar and taskbar
+        ico_path = get_resource_path("app.ico")
+        if os.path.exists(ico_path):
+            try:
+                self.root.iconbitmap(ico_path)
+            except Exception:
+                pass
+
+        # 2. Try .png as fallback/photo icon
+        png_path = get_resource_path("app_icon.png")
+        if os.path.exists(png_path):
+            try:
+                self._icon_img = tk.PhotoImage(file=png_path)
+                self.root.iconphoto(True, self._icon_img)
+            except Exception:
+                pass
 
     def setup_export_tab(self):
         f = self.tab_export
@@ -364,10 +396,24 @@ class ZipToTxtApp:
             self.status_var.set("生成补丁失败")
 
 def main():
-    if HAS_DND:
-        root = TkinterDnD.Tk()
-    else:
+    # Set Windows Taskbar AppUserModelID to ensure taskbar icon displays properly
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ziptotxt.ai.workspace.v3")
+        except Exception:
+            pass
+
+    root = None
+    if HAS_DND and TkinterDnD is not None:
+        try:
+            root = TkinterDnD.Tk()
+        except Exception:
+            root = None
+
+    if root is None:
         root = tk.Tk()
+
     app = ZipToTxtApp(root)
     root.mainloop()
 
