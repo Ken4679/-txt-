@@ -37,7 +37,7 @@ jobs:
       - name: Security smoke tests
         shell: pwsh
         run: |
-          python -c "from core import normalize_ai_path, parse_ai_blocks; assert normalize_ai_path('src/main.py') == 'src/main.py'; assert parse_ai_blocks(\"### FILE: a.py\n```python\nprint(1)\n```\")['a.py'] == 'print(1)'"
+          python test_core.py
 
       - name: Build EXE
         shell: pwsh

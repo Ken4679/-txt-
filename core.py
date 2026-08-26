@@ -59,6 +59,14 @@ def human_size(value: int) -> str:
         size /= 1024.0
     return f"{size:.1f} PB"
 
+def is_text_file(filename: str) -> bool:
+    base = os.path.basename(filename)
+    if base in TEXT_FILENAMES:
+        return True
+    _, ext = os.path.splitext(filename)
+    return ext.lower() in TEXT_EXTENSIONS
+
+
 def normalize_ai_path(raw_path: str) -> str:
     if not raw_path:
         raise ValueError("文件路径不能为空")
