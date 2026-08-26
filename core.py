@@ -393,6 +393,18 @@ def parse_ai_output(markdown_text: str) -> Dict[str, Dict[str, str]]:
         files[path] = content.strip()
     return {'files': files}
 
+def parse_ai_blocks(markdown_text: str) -> List[Dict[str, str]]:
+    """
+    解析 AI 输出中的文件块，返回列表形式。
+    每个元素为 {'path': 'relative/path', 'content': 'file content'}
+    """
+    blocks = re.findall(r'###\s*FILE:\s*(.+?)\n```(?:\w+)?\n(.*?)```', markdown_text, re.DOTALL)
+    result = []
+    for path, content in blocks:
+        path = normalize_ai_path(path.strip())
+        result.append({'path': path, 'content': content.strip()})
+    return result
+
 def create_patch_zip(files_dict: Dict[str, str], output_path: str) -> None:
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for rel_path, content in files_dict.items():
