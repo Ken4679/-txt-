@@ -396,24 +396,35 @@ def assemble_prompt(prompt_template: str, user_requirement: str, repo_txt: str) 
 def parse_ai_output(markdown_text: str) -> Dict[str, str]:
     """
     解析 AI 输出中的文件块，返回字典（键为文件路径，值为文件内容）。
+    如果某个路径非法，跳过该块而不中断整体解析。
     """
-    blocks = re.findall(r'###\s*FILE:\s*(.+?)\s*\n```(?:\w+)?\s*\n(.*?)```', markdown_text, re.DOTALL)
+    # 正则：匹配 ### FILE: 路径 \n ```语言 \n 内容 ```
+    # 注意使用非贪婪，并允许各种空白
+    blocks = re.findall(r'###\s*FILE:\s*(.+?)\s*\n\s*```(?:\w+)?\s*\n(.*?)```', markdown_text, re.DOTALL)
     files = {}
     for path, content in blocks:
-        path = normalize_ai_path(path.strip())
-        files[path] = content.strip()
+        try:
+            path = normalize_ai_path(path.strip())
+            files[path] = content.strip()
+        except SecurityError:
+            # 跳过非法路径，继续解析其他块
+            continue
     return files
 
 def parse_ai_blocks(markdown_text: str) -> List[Dict[str, str]]:
     """
     解析 AI 输出中的文件块，返回列表形式。
     每个元素为 {'path': 'relative/path', 'content': 'file content'}
+    如果某个路径非法，跳过该块。
     """
-    blocks = re.findall(r'###\s*FILE:\s*(.+?)\s*\n```(?:\w+)?\s*\n(.*?)```', markdown_text, re.DOTALL)
+    blocks = re.findall(r'###\s*FILE:\s*(.+?)\s*\n\s*```(?:\w+)?\s*\n(.*?)```', markdown_text, re.DOTALL)
     result = []
     for path, content in blocks:
-        path = normalize_ai_path(path.strip())
-        result.append({'path': path, 'content': content.strip()})
+        try:
+            path = normalize_ai_path(path.strip())
+            result.append({'path': path, 'content': content.strip()})
+        except SecurityError:
+            continue
     return result
 
 def create_patch_zip(files_dict: Dict[str, str], output_path: str) -> None:
