@@ -74,6 +74,7 @@ TEXT_FILENAMES = {
     'Procfile', 'CNAME', 'docker-compose.yml', 'docker-compose.yaml', 'nginx.conf'
 }
 
+# ===== 修复点：闭合多行字符串 =====
 AI_PRIMARY_PROMPT = """I am sharing a complete source-code repository exported into a TXT file.
 
 Please implement this requirement:
@@ -86,3 +87,4 @@ Rules:
 ### FILE: relative/path/to/file.ext
 ```language
 complete file content
+"""
