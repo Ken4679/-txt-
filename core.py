@@ -7,31 +7,26 @@ import base64
 import zipfile
 import tempfile
 import urllib.parse
-import hashlib  # 新增：确保全局可用
+import hashlib
 from typing import Dict, List, Tuple, Optional, Set, Any
 
 # Security Thresholds
-MAX_ZIP_BYTES = 512 * 1024 * 1024               # 512 MB input zip limit
-MAX_ZIP_MEMBERS = 15_000                         # 15,000 files limit
-MAX_ZIP_UNCOMPRESSED_BYTES = 1 * 1024 * 1024 * 1024 # 1.0 GB total uncompressed limit
-MAX_ZIP_SINGLE_FILE_BYTES = 256 * 1024 * 1024    # 256 MB single file limit
-MAX_AI_INPUT_BYTES = 35 * 1024 * 1024            # 35 MB input markdown limit
-MAX_AI_FILES = 3_000                             # 3,000 parsed files limit
-MAX_AI_TOTAL_OUTPUT_BYTES = 120 * 1024 * 1024    # 120 MB total parsed output limit
-MAX_AI_SINGLE_OUTPUT_BYTES = 15 * 1024 * 1024    # 15 MB single parsed output limit
+MAX_ZIP_BYTES = 512 * 1024 * 1024
+MAX_ZIP_MEMBERS = 15_000
+MAX_ZIP_UNCOMPRESSED_BYTES = 1 * 1024 * 1024 * 1024
+MAX_ZIP_SINGLE_FILE_BYTES = 256 * 1024 * 1024
+MAX_AI_INPUT_BYTES = 35 * 1024 * 1024
+MAX_AI_FILES = 3_000
+MAX_AI_TOTAL_OUTPUT_BYTES = 120 * 1024 * 1024
+MAX_AI_SINGLE_OUTPUT_BYTES = 15 * 1024 * 1024
 
 class SecurityError(Exception):
-    """Raised when security boundaries (ZipSlip, ZipBomb, Path Escaping) are breached."""
     pass
 
 class ZipSecurityConfig:
-    def __init__(
-        self,
-        max_zip_bytes: int = MAX_ZIP_BYTES,
-        max_members: int = MAX_ZIP_MEMBERS,
-        max_uncompressed_bytes: int = MAX_ZIP_UNCOMPRESSED_BYTES,
-        max_single_file_bytes: int = MAX_ZIP_SINGLE_FILE_BYTES
-    ):
+    def __init__(self, max_zip_bytes=MAX_ZIP_BYTES, max_members=MAX_ZIP_MEMBERS,
+                 max_uncompressed_bytes=MAX_ZIP_UNCOMPRESSED_BYTES,
+                 max_single_file_bytes=MAX_ZIP_SINGLE_FILE_BYTES):
         self.max_zip_bytes = max_zip_bytes
         self.max_members = max_members
         self.max_uncompressed_bytes = max_uncompressed_bytes
@@ -45,13 +40,11 @@ SENSITIVE_FILE_NAMES = {
     '.npmrc', '.pypirc', '.netrc', '.htpasswd', '.dockercfg', 'config.json',
     'keystore.jks', 'master.key', 'client_secret.json', 'firebase-adminsdk.json'
 }
-
 WINDOWS_RESERVED_NAMES = {
     'CON', 'PRN', 'AUX', 'NUL',
     'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
     'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
 }
-
 TEXT_EXTENSIONS = {
     '.txt', '.md', '.markdown', '.rst', '.py', '.pyw', '.js', '.jsx', '.mjs', '.cjs',
     '.ts', '.tsx', '.java', '.kt', '.kts', '.c', '.h', '.cc', '.cpp', '.cxx', '.hpp',
@@ -62,7 +55,6 @@ TEXT_EXTENSIONS = {
     '.vue', '.svelte', '.astro', '.sol', '.proto', '.graphql', '.gql', '.tf', '.hcl',
     '.r', '.dart', '.scala', '.erl', '.ex', '.exs', '.clj', '.cljs', '.edn'
 }
-
 TEXT_FILENAMES = {
     'Dockerfile', 'Makefile', 'CMakeLists.txt', 'LICENSE', 'LICENSE.txt', 'LICENSE.md',
     'README', 'README.txt', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md',
@@ -75,8 +67,8 @@ TEXT_FILENAMES = {
     'Procfile', 'CNAME', 'docker-compose.yml', 'docker-compose.yaml', 'nginx.conf'
 }
 
-# ===== Prompt 模板（已正确闭合） =====
-AI_PRIMARY_PROMPT = """I am sharing a complete source-code repository exported into a TXT file.
+# ====================== Prompt 模板（使用三单引号，防止内部双引号干扰） ======================
+AI_PRIMARY_PROMPT = '''I am sharing a complete source-code repository exported into a TXT file.
 
 Please implement this requirement:
 [DESCRIBE YOUR REQUIREMENT HERE]
@@ -92,17 +84,17 @@ complete file content
 4. Always return complete file content. Never use placeholders (e.g. do not use "...keep existing code...").
 5. Preserve repository-relative paths.
 6. If a file is long, continue in multiple messages without omitting content.
-"""
+'''
 
-AI_CONTINUE_PROMPT = """Continue exactly where your previous response stopped.
+AI_CONTINUE_PROMPT = '''Continue exactly where your previous response stopped.
 Do not restart completed files. Do not summarize or explain. Output remaining complete source code files only.
 Format:
 ### FILE: relative/path/to/file.ext
 ```language
 complete file content
-```"""
+```'''
 
-AI_AUDIT_PROMPT_CN = """你是一名兼具【顶级软件架构师】、【首席安全审计专家】与【生产交付负责人】三重身份的技术权威。你正在审计一份通过 TXT 格式全量导出的代码仓库。
+AI_AUDIT_PROMPT_CN = '''你是一名兼具【顶级软件架构师】、【首席安全审计专家】与【生产交付负责人】三重身份的技术权威。你正在审计一份通过 TXT 格式全量导出的代码仓库。
 该项目包含 AI 辅助敏捷编程产物，请以严苛的【工业级生产上线（Zero-Bug & High-Reliability）】标准进行端到端全方位深度审计，并针对所有瑕疵直接输出【100% 完整、可直接打补丁替换上线的生产级源代码】。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -147,9 +139,9 @@ AI_AUDIT_PROMPT_CN = """你是一名兼具【顶级软件架构师】、【首�
 ```
 
 ### 04. 部署与冒烟测试清单 (Smoke Test Checklist)
-- 提供 3-5 步清晰的验证步骤或单元测试建议，确保修复后无任何功能破坏或回归。"""
+- 提供 3-5 步清晰的验证步骤或单元测试建议，确保修复后无任何功能破坏或回归。'''
 
-AI_AUDIT_PROMPT_EN = """You are a Principal Software Architect, Lead Security Auditor, and Production Release Gatekeeper auditing a complete repository exported in TXT format.
+AI_AUDIT_PROMPT_EN = '''You are a Principal Software Architect, Lead Security Auditor, and Production Release Gatekeeper auditing a complete repository exported in TXT format.
 Your objective: Audit this entire codebase against rigorous, enterprise-grade production reliability standards and provide 100% complete, drop-in replacement remediation code.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -193,42 +185,36 @@ Structure your response into the following 4 sections:
 ```
 
 ### 04. Deployment & Smoke Test Checklist
-- Provide 3-5 concrete verification steps/commands to ensure zero regressions after applying the patch."""
+- Provide 3-5 concrete verification steps/commands to ensure zero regressions after applying the patch.'''
 
 # ============================
-# 核心功能函数实现
+# 核心功能函数
 # ============================
 
 def normalize_ai_path(raw_path: str) -> str:
-    """Sanitize and normalize a file path from AI output (anti-traversal & anti-ZipSlip)."""
     if not raw_path or not isinstance(raw_path, str):
         raise SecurityError("文件路径不能为空")
-    # Remove control chars, Bidi, zero-width, null
     path = re.sub(r'[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\uFEFF]', '', raw_path).strip()
-    # URL-decode up to 3 levels to catch %2e%2e etc.
     decoded = path
     for _ in range(3):
         if re.search(r'%[0-9a-fA-F]{2}', decoded):
             try:
-                next_dec = urllib.parse.unquote(decoded)
-                if next_dec == decoded:
+                nxt = urllib.parse.unquote(decoded)
+                if nxt == decoded:
                     break
-                decoded = next_dec
+                decoded = nxt
             except:
                 break
         else:
             break
     path = decoded
-    # Normalize slashes and remove surrounding marks/quotes
     path = path.replace('\\', '/').strip()
     path = re.sub(r'^[`"\'*\s#]+|[`"\'*\s#]+$', '', path)
     if not path:
         raise SecurityError(f"非法空文件路径: {raw_path}")
-    # Disallow absolute/UNC/drive
     path = re.sub(r'^/+', '', path)
     if re.match(r'^[A-Za-z]:', path) or path.startswith('//') or path.startswith('\\\\'):
         raise SecurityError(f"禁止绝对路径或网络路径: {raw_path}")
-    # Split and validate each component
     parts = [p for p in path.split('/') if p and p != '.']
     for part in parts:
         if part == '..' or part.lower() == '%2e%2e' or '..' in part:
@@ -239,7 +225,6 @@ def normalize_ai_path(raw_path: str) -> str:
     return '/'.join(parts)
 
 def is_safe_relative_path(path: str) -> bool:
-    """Check if a relative path is safe (no traversal, no reserved names)."""
     try:
         normalize_ai_path(path)
         return True
@@ -247,7 +232,6 @@ def is_safe_relative_path(path: str) -> bool:
         return False
 
 def is_sensitive_path(rel_path: str) -> bool:
-    """Check if a path indicates sensitive credentials or keys."""
     try:
         norm = normalize_ai_path(rel_path)
         parts = norm.split('/')
@@ -266,14 +250,12 @@ def is_sensitive_path(rel_path: str) -> bool:
         return True
 
 def is_text_file(filename: str, sample_bytes: Optional[bytes] = None) -> bool:
-    """Determine if a file is text based on extension and content."""
     name = os.path.basename(filename)
     ext = os.path.splitext(name)[1].lower()
     if name in TEXT_FILENAMES or ext in TEXT_EXTENSIONS:
         return True
     if sample_bytes is None:
         return False
-    # Check for null bytes
     if b'\x00' in sample_bytes:
         return False
     try:
@@ -287,11 +269,9 @@ def is_text_file(filename: str, sample_bytes: Optional[bytes] = None) -> bool:
             return False
 
 def estimate_tokens(text: str) -> int:
-    """Rough token estimate (4 chars per token)."""
     return len(text) // 4 + 1
 
 def human_size(size: int) -> str:
-    """Convert bytes to human readable string."""
     if size < 1024:
         return f"{size} B"
     for unit in ('KB', 'MB', 'GB', 'TB'):
@@ -301,7 +281,6 @@ def human_size(size: int) -> str:
     return f"{size:.1f} PB"
 
 def safe_extract_zip(zip_path: str, target_dir: str, config: Optional[ZipSecurityConfig] = None) -> Tuple[str, List[str]]:
-    """Extract ZIP with full security checks (ZipBomb, ZipSlip, symlinks)."""
     if config is None:
         config = ZipSecurityConfig()
     if os.path.getsize(zip_path) > config.max_zip_bytes:
@@ -315,17 +294,14 @@ def safe_extract_zip(zip_path: str, target_dir: str, config: Optional[ZipSecurit
         for m in members:
             if m.is_dir():
                 continue
-            # Check symlinks/hardlinks
-            if m.external_attr & 0xF000 == 0xA000:  # symlink
+            if m.external_attr & 0xF000 == 0xA000:
                 raise SecurityError(f"符号链接被拦截: {m.filename}")
-            # Validate path safety
             norm = normalize_ai_path(m.filename)
             if m.file_size > config.max_single_file_bytes:
                 raise SecurityError(f"单文件过大: {m.filename} ({human_size(m.file_size)})")
             total_uncompressed += m.file_size
             if total_uncompressed > config.max_uncompressed_bytes:
                 raise SecurityError(f"解压总量 {human_size(total_uncompressed)} 超过上限 {human_size(config.max_uncompressed_bytes)}")
-            # Extract safely
             target_path = os.path.join(target_dir, norm)
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
             with open(target_path, 'wb') as f:
@@ -334,7 +310,6 @@ def safe_extract_zip(zip_path: str, target_dir: str, config: Optional[ZipSecurit
     return target_dir, extracted_files
 
 def get_file_language(filename: str) -> str:
-    """Guess language from file extension."""
     ext = os.path.splitext(filename)[1].lower()
     mapping = {
         '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
@@ -348,14 +323,12 @@ def get_file_language(filename: str) -> str:
     return mapping.get(ext, 'text')
 
 def scan_and_format_repo(directory: str, base64_binaries: bool = False, exclude_patterns: List[str] = None) -> Tuple[str, List[Dict]]:
-    """Scan repo directory and produce formatted TXT content and file info list."""
     exclude_patterns = exclude_patterns or []
     files_info = []
     txt_parts = []
     for root, dirs, files in os.walk(directory):
         for f in files:
             rel = os.path.relpath(os.path.join(root, f), directory).replace('\\', '/')
-            # Skip excluded
             if any(re.search(p, rel) for p in exclude_patterns):
                 continue
             full = os.path.join(root, f)
@@ -363,15 +336,8 @@ def scan_and_format_repo(directory: str, base64_binaries: bool = False, exclude_
             with open(full, 'rb') as fp:
                 data = fp.read()
             is_text = is_text_file(f, data[:8192])
-            # 使用 hashlib 直接计算十六进制 SHA-256
             sha256 = hashlib.sha256(data).hexdigest()
-            info = {
-                'path': rel,
-                'size': size,
-                'is_text': is_text,
-                'sha256': sha256,
-                'lines': 0
-            }
+            info = {'path': rel, 'size': size, 'is_text': is_text, 'sha256': sha256, 'lines': 0}
             if is_text:
                 try:
                     content = data.decode('utf-8', errors='replace')
@@ -395,7 +361,6 @@ def scan_and_format_repo(directory: str, base64_binaries: bool = False, exclude_
     return "\n".join(txt_parts), files_info
 
 def generate_ascii_tree(directory: str, exclude_patterns: List[str] = None) -> str:
-    """Generate an ASCII tree representation of the directory."""
     exclude_patterns = exclude_patterns or []
     lines = []
     root_name = os.path.basename(directory) or 'repo'
@@ -415,15 +380,12 @@ def generate_ascii_tree(directory: str, exclude_patterns: List[str] = None) -> s
     return "\n".join(lines)
 
 def assemble_prompt(prompt_template: str, user_requirement: str, repo_txt: str) -> str:
-    """Insert user requirement into template and append repo context."""
     if user_requirement:
         prompt_template = re.sub(r'\[DESCRIBE YOUR REQUIREMENT HERE\]', user_requirement, prompt_template, flags=re.I)
         prompt_template = re.sub(r'\[在此详细描述您的业务需求.*?\]', user_requirement, prompt_template, flags=re.I)
     return prompt_template + "\n\n" + repo_txt
 
 def parse_ai_output(markdown_text: str) -> Dict[str, Dict[str, str]]:
-    """Parse AI output and return dict of {relative_path: content}."""
-    # 正则匹配 ### FILE: path 后跟代码块
     blocks = re.findall(r'###\s*FILE:\s*(.+?)\n```(?:\w+)?\n(.*?)```', markdown_text, re.DOTALL)
     files = {}
     for path, content in blocks:
@@ -432,13 +394,11 @@ def parse_ai_output(markdown_text: str) -> Dict[str, Dict[str, str]]:
     return {'files': files}
 
 def create_patch_zip(files_dict: Dict[str, str], output_path: str) -> None:
-    """Create a ZIP archive with the given files."""
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for rel_path, content in files_dict.items():
             zf.writestr(rel_path, content)
 
 def write_parsed_files_to_dir(files_dict: Dict[str, str], target_dir: str) -> None:
-    """Write parsed files to target directory (with security checks)."""
     for rel_path, content in files_dict.items():
         norm = normalize_ai_path(rel_path)
         target_path = os.path.join(target_dir, norm)
