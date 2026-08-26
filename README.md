@@ -108,8 +108,6 @@ pyinstaller --clean --noconfirm `
   --icon="app.ico" `
   --add-data "app.ico;." `
   --add-data "app_icon.png;." `
-  --collect-all tkinterdnd2 `
-  --additional-hooks-dir=. `
   main.py
 ```
 打包产物位于 `dist/ZipToTxt.exe`。

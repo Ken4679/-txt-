@@ -32,7 +32,7 @@ jobs:
       - name: Syntax check
         shell: pwsh
         run: |
-          python -m py_compile main.py core.py hook-tkinterdnd2.py
+          python -m py_compile main.py core.py
 
       - name: Security smoke tests
         shell: pwsh
@@ -51,8 +51,6 @@ jobs:
             --icon="app.ico" `
             --add-data "app.ico;." `
             --add-data "app_icon.png;." `
-            --collect-all tkinterdnd2 `
-            --additional-hooks-dir=. `
             main.py
 
       - name: Verify EXE exists

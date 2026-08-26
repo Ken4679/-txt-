@@ -8,18 +8,13 @@ import zipfile
 import hashlib
 from typing import Optional, List
 
-HAS_DND = False
-TkinterDnD = None
-DND_FILES = None
-
-try:
-    import tkinterdnd2
-    DND_FILES = getattr(tkinterdnd2, 'DND_FILES', None)
-    TkinterDnD = getattr(tkinterdnd2, 'TkinterDnD', None)
-    if TkinterDnD is not None:
-        HAS_DND = True
-except Exception:
-    HAS_DND = False
+HAS_WINDND = False
+if sys.platform == 'win32':
+    try:
+        import windnd
+        HAS_WINDND = True
+    except Exception:
+        HAS_WINDND = False
 
 from core import (
     normalize_ai_path,
@@ -129,6 +124,9 @@ class ZipToTxtApp:
         self.setup_import_tab()
         self.setup_help_tab()
 
+        # Drag and Drop support
+        self.setup_drag_and_drop()
+
         # Status Bar
         self.status_var = tk.StringVar(value="就绪 · 支持文件拖拽与离线处理")
         self.status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W, padding=(6, 3))
@@ -151,6 +149,44 @@ class ZipToTxtApp:
                 self.root.iconphoto(True, self._icon_img)
             except Exception:
                 pass
+
+    def setup_drag_and_drop(self):
+        if sys.platform == 'win32' and HAS_WINDND:
+            try:
+                windnd.hook_dropfiles(self.root, func=self.on_drop_files)
+            except Exception:
+                pass
+
+    def on_drop_files(self, files):
+        if not files:
+            return
+        for f in files:
+            if isinstance(f, bytes):
+                try:
+                    f = f.decode('utf-8')
+                except UnicodeDecodeError:
+                    f = f.decode('gbk', errors='ignore')
+            f_str = str(f).strip()
+            if os.path.isfile(f_str):
+                if f_str.lower().endswith('.zip'):
+                    self.zip_path_var.set(f_str)
+                    self.status_var.set(f"已通过拖拽载入: {os.path.basename(f_str)}")
+                    try:
+                        self.notebook.select(self.tab_export)
+                    except Exception:
+                        pass
+                    break
+                elif f_str.lower().endswith(('.txt', '.md', '.patch')):
+                    try:
+                        with open(f_str, 'r', encoding='utf-8', errors='ignore') as fp:
+                            content = fp.read()
+                        self.import_text.delete('1.0', tk.END)
+                        self.import_text.insert('1.0', content)
+                        self.status_var.set(f"已载入 AI 响应文本: {os.path.basename(f_str)}")
+                        self.notebook.select(self.tab_import)
+                    except Exception:
+                        pass
+                    break
 
     def setup_export_tab(self):
         f = self.tab_export
@@ -404,16 +440,7 @@ def main():
         except Exception:
             pass
 
-    root = None
-    if HAS_DND and TkinterDnD is not None:
-        try:
-            root = TkinterDnD.Tk()
-        except Exception:
-            root = None
-
-    if root is None:
-        root = tk.Tk()
-
+    root = tk.Tk()
     app = ZipToTxtApp(root)
     root.mainloop()
 
