@@ -1,17 +1,40 @@
 # Core processing module for ZipToTxt (Enhanced with Security & High Fault-Tolerance)
 import os
 import re
+import io
+import sys
+import base64
+import zipfile
+import tempfile
 import urllib.parse
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional, Set, Any
 
-MAX_ZIP_BYTES = 512 * 1024 * 1024
-MAX_ZIP_MEMBERS = 15_000
-MAX_ZIP_UNCOMPRESSED_BYTES = 1 * 1024 * 1024 * 1024
-MAX_ZIP_SINGLE_FILE_BYTES = 256 * 1024 * 1024
-MAX_AI_INPUT_BYTES = 35 * 1024 * 1024
-MAX_AI_FILES = 3_000
-MAX_AI_TOTAL_OUTPUT_BYTES = 120 * 1024 * 1024
-MAX_AI_SINGLE_OUTPUT_BYTES = 15 * 1024 * 1024
+# Security Thresholds
+MAX_ZIP_BYTES = 512 * 1024 * 1024               # 512 MB input zip limit
+MAX_ZIP_MEMBERS = 15_000                         # 15,000 files limit
+MAX_ZIP_UNCOMPRESSED_BYTES = 1 * 1024 * 1024 * 1024 # 1.0 GB total uncompressed limit
+MAX_ZIP_SINGLE_FILE_BYTES = 256 * 1024 * 1024    # 256 MB single file limit
+MAX_AI_INPUT_BYTES = 35 * 1024 * 1024            # 35 MB input markdown limit
+MAX_AI_FILES = 3_000                             # 3,000 parsed files limit
+MAX_AI_TOTAL_OUTPUT_BYTES = 120 * 1024 * 1024    # 120 MB total parsed output limit
+MAX_AI_SINGLE_OUTPUT_BYTES = 15 * 1024 * 1024    # 15 MB single parsed output limit
+
+class SecurityError(Exception):
+    """Raised when security boundaries (ZipSlip, ZipBomb, Path Escaping) are breached."""
+    pass
+
+class ZipSecurityConfig:
+    def __init__(
+        self,
+        max_zip_bytes: int = MAX_ZIP_BYTES,
+        max_members: int = MAX_ZIP_MEMBERS,
+        max_uncompressed_bytes: int = MAX_ZIP_UNCOMPRESSED_BYTES,
+        max_single_file_bytes: int = MAX_ZIP_SINGLE_FILE_BYTES
+    ):
+        self.max_zip_bytes = max_zip_bytes
+        self.max_members = max_members
+        self.max_uncompressed_bytes = max_uncompressed_bytes
+        self.max_single_file_bytes = max_single_file_bytes
 
 SENSITIVE_DIR_NAMES = {'.git', '.ssh', '.aws', '.kube', '.gnupg', '.docker', '.subversion', '.gem'}
 SENSITIVE_FILE_NAMES = {
@@ -142,6 +165,19 @@ def is_text_file(filename: str) -> bool:
     _, ext = os.path.splitext(filename)
     return ext.lower() in TEXT_EXTENSIONS
 
+def estimate_tokens(text: str) -> int:
+    """Rough token count estimation based on char length."""
+    if not text:
+        return 0
+    # Rule of thumb: ~3.8 chars per token for code & english mixed text
+    return int(len(text) / 3.8) + 1
+
+def is_safe_relative_path(path_str: str) -> bool:
+    try:
+        normalize_ai_path(path_str)
+        return True
+    except Exception:
+        return False
 
 def normalize_ai_path(raw_path: str) -> str:
     if not raw_path:
@@ -190,6 +226,180 @@ def is_sensitive_path(rel_path: str) -> bool:
         return False
     except Exception:
         return True
+
+def safe_extract_zip(zip_path: str, extract_to: str, config: Optional[ZipSecurityConfig] = None) -> Tuple[str, List[str]]:
+    """Safely extracts a zip file protecting against Zip Slip, Zip Bomb, and symlink exploits."""
+    if config is None:
+        config = ZipSecurityConfig()
+
+    if not os.path.isfile(zip_path):
+        raise FileNotFoundError(f"找不到 ZIP 文件: {zip_path}")
+
+    file_size = os.path.getsize(zip_path)
+    if file_size > config.max_zip_bytes:
+        raise SecurityError(f"ZIP 文件大小 ({human_size(file_size)}) 超出安全限制 ({human_size(config.max_zip_bytes)})")
+
+    os.makedirs(extract_to, exist_ok=True)
+    extracted_files: List[str] = []
+    total_uncompressed_bytes = 0
+
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        infolist = zf.infolist()
+        if len(infolist) > config.max_members:
+            raise SecurityError(f"ZIP 包含文件过多 ({len(infolist)} 个)，超出限制 ({config.max_members})")
+
+        # First pass check: sizes and Zip Slip paths
+        for info in infolist:
+            total_uncompressed_bytes += info.file_size
+            if total_uncompressed_bytes > config.max_uncompressed_bytes:
+                raise SecurityError(f"ZIP 解压总体积超出限制 ({human_size(config.max_uncompressed_bytes)})")
+            if info.file_size > config.max_single_file_bytes:
+                raise SecurityError(f"单文件解压大小超出限制: {info.filename} ({human_size(info.file_size)})")
+
+            # Check symlinks (Unix external attr & 0o120000)
+            if (info.external_attr >> 16) & 0o120000 == 0o120000:
+                raise SecurityError(f"发现非法符号链接 (Symlink): {info.filename}")
+
+            # Path normalization check
+            norm_name = info.filename.replace('\\', '/')
+            if norm_name.startswith('/') or '..' in norm_name.split('/'):
+                raise SecurityError(f"发现 Zip Slip 路径穿越企图: {info.filename}")
+
+        # Extract files
+        target_base = os.path.abspath(extract_to)
+        for info in infolist:
+            norm_rel = info.filename.replace('\\', '/').lstrip('/')
+            dest_path = os.path.abspath(os.path.join(target_base, norm_rel))
+
+            if not dest_path.startswith(target_base + os.sep) and dest_path != target_base:
+                raise SecurityError(f"Zip Slip 目标逃逸: {info.filename}")
+
+            if info.is_dir():
+                os.makedirs(dest_path, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                with zf.open(info) as src, open(dest_path, 'wb') as dst:
+                    while chunk := src.read(65536):
+                        dst.write(chunk)
+                extracted_files.append(norm_rel)
+
+    # Detect if single root folder wrapper exists (e.g. repo-main/)
+    entries = [e for e in os.listdir(target_base) if not e.startswith('.')]
+    if len(entries) == 1:
+        single_dir = os.path.join(target_base, entries[0])
+        if os.path.isdir(single_dir):
+            return single_dir, extracted_files
+
+    return target_base, extracted_files
+
+def generate_ascii_tree(root_dir: str, exclude_patterns: Optional[List[str]] = None) -> str:
+    """Generates a clean ASCII tree directory structure."""
+    if exclude_patterns is None:
+        exclude_patterns = []
+
+    lines = [f"{os.path.basename(os.path.abspath(root_dir))}/"]
+
+    def walk(current_dir: str, prefix: str = ""):
+        try:
+            items = sorted(os.listdir(current_dir))
+        except Exception:
+            return
+
+        # Filter hidden and exclusions
+        filtered = []
+        for item in items:
+            if item in {'.git', '.svn', '.hg', 'node_modules', '__pycache__', '.venv', 'venv'}:
+                continue
+            filtered.append(item)
+
+        for index, item in enumerate(filtered):
+            is_last = (index == len(filtered) - 1)
+            pointer = "└── " if is_last else "├── "
+            full_path = os.path.join(current_dir, item)
+            
+            if os.path.isdir(full_path):
+                lines.append(f"{prefix}{pointer}{item}/")
+                new_prefix = prefix + ("    " if is_last else "│   ")
+                walk(full_path, new_prefix)
+            else:
+                lines.append(f"{prefix}{pointer}{item}")
+
+    walk(root_dir)
+    return '\n'.join(lines)
+
+def scan_and_format_repo(
+    root_dir: str,
+    base64_binaries: bool = False,
+    exclude_patterns: Optional[List[str]] = None
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """Scans repository folder and generates unified TXT content for AI context."""
+    files_info: List[Dict[str, Any]] = []
+    txt_parts: List[str] = []
+
+    txt_parts.append("================================================================================")
+    txt_parts.append("ZIPIFY REPOSITORY CONTEXT EXPORT")
+    txt_parts.append("================================================================================\n")
+    txt_parts.append("DIRECTORY STRUCTURE:")
+    txt_parts.append(generate_ascii_tree(root_dir, exclude_patterns))
+    txt_parts.append("\n================================================================================")
+    txt_parts.append("REPOSITORY SOURCE CODE FILES")
+    txt_parts.append("================================================================================\n")
+
+    root_abs = os.path.abspath(root_dir)
+
+    for dirpath, dirnames, filenames in os.walk(root_abs):
+        # Exclude directories in place
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in {'.git', '.svn', 'node_modules', '__pycache__', '.venv', 'venv', 'dist', 'build'}
+        ]
+
+        for fname in sorted(filenames):
+            full_path = os.path.join(dirpath, fname)
+            rel_path = os.path.relpath(full_path, root_abs).replace('\\', '/')
+
+            is_text = is_text_file(fname)
+            file_size = os.path.getsize(full_path)
+            lines_count = 0
+
+            file_record: Dict[str, Any] = {
+                "path": rel_path,
+                "size": file_size,
+                "is_text": is_text,
+                "lines": 0
+            }
+
+            if is_text:
+                try:
+                    with open(full_path, 'r', encoding='utf-8', errors='replace') as fp:
+                        content = fp.read()
+                    lines_count = len(content.splitlines())
+                    file_record["lines"] = lines_count
+
+                    _, ext = os.path.splitext(fname)
+                    lang = ext.lstrip('.').lower() or "text"
+
+                    txt_parts.append(f"### FILE: {rel_path}")
+                    txt_parts.append(f"```{lang}")
+                    txt_parts.append(content)
+                    txt_parts.append("```\n")
+                except Exception as e:
+                    txt_parts.append(f"### FILE: {rel_path} (Error reading: {e})\n")
+            elif base64_binaries and file_size <= 2 * 1024 * 1024:
+                try:
+                    with open(full_path, 'rb') as fp:
+                        b64_data = base64.b64encode(fp.read()).decode('ascii')
+                    txt_parts.append(f"### FILE: {rel_path} [BASE64_BINARY]")
+                    txt_parts.append("```base64")
+                    txt_parts.append(b64_data)
+                    txt_parts.append("```\n")
+                except Exception:
+                    pass
+
+            files_info.append(file_record)
+
+    full_txt = '\n'.join(txt_parts)
+    return full_txt, files_info
 
 def parse_ai_blocks(raw_text: str) -> Dict[str, str]:
     if len(raw_text.encode('utf-8')) > MAX_AI_INPUT_BYTES:
@@ -281,3 +491,39 @@ def parse_ai_blocks(raw_text: str) -> Dict[str, str]:
             merged[path] = content
 
     return merged
+
+def parse_ai_output(raw_text: str) -> Dict[str, Any]:
+    """Top-level wrapper returning structured result matching web/desktop consumers."""
+    files = parse_ai_blocks(raw_text)
+    return {
+        "files": files,
+        "total_files": len(files),
+        "total_chars": sum(len(c) for c in files.values())
+    }
+
+def create_patch_zip(files_map: Dict[str, str], output_zip_path: str) -> str:
+    """Creates a clean zip archive containing only the parsed files."""
+    os.makedirs(os.path.dirname(os.path.abspath(output_zip_path)), exist_ok=True)
+    with zipfile.ZipFile(output_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for rel_path, content in files_map.items():
+            norm = normalize_ai_path(rel_path)
+            zf.writestr(norm, content.encode('utf-8'))
+    return output_zip_path
+
+def write_parsed_files_to_dir(files_map: Dict[str, str], target_dir: str) -> int:
+    """Safely writes parsed files back to target local directory."""
+    base_abs = os.path.abspath(target_dir)
+    os.makedirs(base_abs, exist_ok=True)
+    count = 0
+
+    for rel_path, content in files_map.items():
+        norm = normalize_ai_path(rel_path)
+        dest = os.path.abspath(os.path.join(base_abs, norm))
+        if not dest.startswith(base_abs + os.sep) and dest != base_abs:
+            raise SecurityError(f"越界写目标拦截: {rel_path}")
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, 'w', encoding='utf-8') as fp:
+            fp.write(content)
+        count += 1
+
+    return count
