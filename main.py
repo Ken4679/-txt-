@@ -55,6 +55,7 @@ def get_resource_path(filename: str) -> str:
     target = os.path.join(base_dir, filename)
     if os.path.exists(target):
         return target
+    # Fallback to public folder
     pub_target = os.path.join(base_dir, 'public', filename)
     if os.path.exists(pub_target):
         return pub_target
@@ -230,7 +231,6 @@ class ZipToTxtMainWindow(QMainWindow):
             self.setWindowIcon(QIcon(png_path))
 
     def apply_theme(self):
-        # Modern Crisp Light Theme QSS
         qss = """
         QMainWindow {
             background-color: #f8fafc;
@@ -943,7 +943,7 @@ class ZipToTxtMainWindow(QMainWindow):
 
         help_text = QTextEdit()
         help_text.setReadOnly(True)
-        help_text.setHtml("""
+        help_html = """
         <h3 style="color: #4f46e5; margin-top: 0;">📖 ZipToTxt 核心工作流程与 Prompt 规范</h3>
         <p style="color: #334155; line-height: 1.6;">
         ZipToTxt 是专为大语言模型（Claude 3.5 Sonnet, GPT-4o, Gemini 1.5 Pro, DeepSeek-V3 等）工程化研发设计的上下文提取与代码补丁还原工具。
@@ -962,5 +962,46 @@ class ZipToTxtMainWindow(QMainWindow):
         </p>
         <pre style="background: #f1f5f9; color: #059669; padding: 10px; border-radius: 8px; font-family: Consolas;">
 ### FILE: path/to/file.ext
-```language
+&#96;&#96;&#96;language
 // 完整的、可直接运行的代码内容
+&#96;&#96;&#96;
+        </pre>
+
+        <h4 style="color: #0284c7;">📌 第三步：还原 AI 补丁为 ZIP</h4>
+        <ol style="color: #475569; line-height: 1.8;">
+            <li>复制 AI 的回答并粘贴到「02 · AI 补丁还原 ZIP」；</li>
+            <li>点击「⚡ 解析 AI 变更文件」，左侧将列出所有变更文件并支持 Diff 预览；</li>
+            <li>点击「📦 一键生成 patch.zip 补丁包」或「📂 直接应用到本地项目目录」。</li>
+        </ol>
+        """
+        help_text.setHtml(help_html)
+        layout.addWidget(help_text)
+
+
+# ==========================================
+# Application Entry Point
+# ==========================================
+
+def main():
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ZipToTxt.App.Workspace.v3.1")
+        except Exception:
+            pass
+
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+
+    app = QApplication(sys.argv)
+    app.setApplicationName("ZipToTxt")
+    app.setOrganizationName("ZipToTxt")
+
+    window = ZipToTxtMainWindow()
+    window.show()
+
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
