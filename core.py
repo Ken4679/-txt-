@@ -94,6 +94,14 @@ Format:
 complete file content
 ```'''
 
+AI_REVIEW_PROMPT = '''You are a senior code reviewer. Please review the following repository and provide a detailed analysis including potential bugs, security issues, performance improvements, and code style suggestions.
+
+Format your response as:
+### FILE: path
+```language
+// comments and suggestions
+```'''
+
 AI_AUDIT_PROMPT_CN = '''你是一名兼具【顶级软件架构师】、【首席安全审计专家】与【生产交付负责人】三重身份的技术权威。你正在审计一份通过 TXT 格式全量导出的代码仓库。
 该项目包含 AI 辅助敏捷编程产物，请以严苛的【工业级生产上线（Zero-Bug & High-Reliability）】标准进行端到端全方位深度审计，并针对所有瑕疵直接输出【100% 完整、可直接打补丁替换上线的生产级源代码】。
 
