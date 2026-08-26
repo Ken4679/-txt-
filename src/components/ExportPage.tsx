@@ -339,7 +339,7 @@ export const ExportPage: React.FC<ExportPageProps> = ({
                 自动过滤无用目录与垃圾缓存
               </span>
               <span className="text-slate-500">
-                自动排除 node_modules, .git, .venv, dist, __pycache__, __MACOSX 等庞大非核心文件
+                自动排除 node_modules, .git (版本历史), .venv, dist, __pycache__, __MACOSX 等庞大缓存（保留 .github 工作流及项目配置）
               </span>
             </div>
           </label>

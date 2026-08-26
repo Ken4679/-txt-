@@ -11,10 +11,14 @@ export const TEXT_EXTENSIONS = new Set([
 
 export const TEXT_FILENAMES = new Set([
   'Dockerfile', 'Makefile', 'CMakeLists.txt', 'LICENSE', 'LICENSE.txt', 'LICENSE.md',
-  'README', 'README.txt', 'README.md', '.gitignore', '.gitattributes',
-  '.dockerignore', '.editorconfig', '.env', '.prettierrc', '.eslintrc',
-  'pom.xml', 'build.gradle', 'package.json', 'tsconfig.json', 'Cargo.toml',
-  'go.mod', 'go.sum', 'requirements.txt', 'pyproject.toml', 'Gemfile'
+  'README', 'README.txt', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md',
+  '.gitignore', '.gitattributes', '.gitmodules', '.gitlab-ci.yml', '.gitpod.yml',
+  '.dockerignore', '.editorconfig', '.env', '.prettierrc', '.eslintrc', '.eslintignore',
+  'CODEOWNERS', 'FUNDING.yml', 'dependabot.yml', 'action.yml', 'action.yaml',
+  'pom.xml', 'build.gradle', 'package.json', 'tsconfig.json', 'Cargo.toml', 'Cargo.lock',
+  'go.mod', 'go.sum', 'requirements.txt', 'pyproject.toml', 'Gemfile', 'Gemfile.lock',
+  'Pipfile', 'Pipfile.lock', 'yarn.lock', 'pnpm-lock.yaml', 'package-lock.json',
+  'Procfile', 'CNAME', 'docker-compose.yml', 'docker-compose.yaml', 'nginx.conf'
 ]);
 
 export const SENSITIVE_FILE_NAMES = new Set([

@@ -13,12 +13,13 @@ MAX_AI_FILES = 3_000
 MAX_AI_TOTAL_OUTPUT_BYTES = 120 * 1024 * 1024
 MAX_AI_SINGLE_OUTPUT_BYTES = 15 * 1024 * 1024
 
-SENSITIVE_DIR_NAMES = {'.git', '.ssh', '.aws', '.kube', '.gnupg', '.docker'}
+SENSITIVE_DIR_NAMES = {'.git', '.ssh', '.aws', '.kube', '.gnupg', '.docker', '.subversion', '.gem'}
 SENSITIVE_FILE_NAMES = {
-    '.env', '.env.local', '.env.production', '.env.development', '.env.test',
-    'id_rsa', 'id_ed25519', 'id_ecdsa', 'id_dsa',
-    'credentials.json', 'secrets.json', 'service-account.json', 'auth.json',
-    '.npmrc', '.pypirc', '.netrc', '.htpasswd'
+    '.env', '.env.local', '.env.production', '.env.development', '.env.test', '.env.staging',
+    'id_rsa', 'id_ed25519', 'id_ecdsa', 'id_dsa', 'id_rsa.pub',
+    'credentials.json', 'secrets.json', 'service-account.json', 'service_account.json', 'auth.json',
+    '.npmrc', '.pypirc', '.netrc', '.htpasswd', '.dockercfg', 'config.json',
+    'keystore.jks', 'master.key', 'client_secret.json', 'firebase-adminsdk.json'
 }
 
 WINDOWS_RESERVED_NAMES = {
@@ -40,10 +41,14 @@ TEXT_EXTENSIONS = {
 
 TEXT_FILENAMES = {
     'Dockerfile', 'Makefile', 'CMakeLists.txt', 'LICENSE', 'LICENSE.txt', 'LICENSE.md',
-    'README', 'README.txt', 'README.md', '.gitignore', '.gitattributes',
-    '.dockerignore', '.editorconfig', '.env', '.prettierrc', '.eslintrc',
-    'pom.xml', 'build.gradle', 'package.json', 'tsconfig.json', 'Cargo.toml',
-    'go.mod', 'go.sum', 'requirements.txt', 'pyproject.toml', 'Gemfile'
+    'README', 'README.txt', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md',
+    '.gitignore', '.gitattributes', '.gitmodules', '.gitlab-ci.yml', '.gitpod.yml',
+    '.dockerignore', '.editorconfig', '.env', '.prettierrc', '.eslintrc', '.eslintignore',
+    'CODEOWNERS', 'FUNDING.yml', 'dependabot.yml', 'action.yml', 'action.yaml',
+    'pom.xml', 'build.gradle', 'package.json', 'tsconfig.json', 'Cargo.toml', 'Cargo.lock',
+    'go.mod', 'go.sum', 'requirements.txt', 'pyproject.toml', 'Gemfile', 'Gemfile.lock',
+    'Pipfile', 'Pipfile.lock', 'yarn.lock', 'pnpm-lock.yaml', 'package-lock.json',
+    'Procfile', 'CNAME', 'docker-compose.yml', 'docker-compose.yaml', 'nginx.conf'
 }
 
 def human_size(value: int) -> str:
