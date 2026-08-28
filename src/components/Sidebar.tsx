@@ -22,32 +22,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     {
       id: 'dashboard' as ActivePage,
-      label: 'Dashboard',
-      desc: 'Overview & Flow',
+      label: '控制台',
+      desc: '工作流概览与快速启动',
       icon: <LayoutDashboard className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'convert' as ActivePage,
-      label: 'Convert Project',
-      desc: 'ZIP → AI Context TXT',
+      label: '项目转换',
+      desc: 'ZIP → AI 上下文 TXT',
       icon: <Archive className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'patch' as ActivePage,
-      label: 'Apply AI Patch',
+      label: '应用 AI 补丁',
       desc: 'Markdown → Patch ZIP',
       icon: <FileCode className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'audit' as ActivePage,
-      label: 'Security & Limits',
-      desc: 'Zip Slip & Sandboxing',
+      label: '安全审计与配额',
+      desc: 'Zip Slip 与沙箱防护',
       icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'help' as ActivePage,
-      label: 'Prompts & Docs',
-      desc: 'Templates & Guides',
+      label: '提示词与指南',
+      desc: '生产级模板与最佳实践',
       icon: <HelpCircle className="w-4 h-4 shrink-0" />,
     },
   ];
@@ -89,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Navigation Links */}
       <nav className="p-3 space-y-1 flex-1">
         <div className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase px-3 py-1 mb-1">
-          Navigation
+          功能导航
         </div>
         {navItems.map(item => {
           const isActive = canonicalActivePage === item.id;
@@ -132,11 +132,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between text-[11px]">
             <span className="font-semibold text-slate-700 truncate">{currentProject.name}</span>
             <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded font-mono">
-              Ready
+              已载入
             </span>
           </div>
           <div className="text-[10px] text-slate-500 font-mono mt-1">
-            {currentProject.totalFiles} files • ~{currentProject.estimatedTokens.toLocaleString()} tokens
+            {currentProject.totalFiles} 个文件 • 约 {currentProject.estimatedTokens.toLocaleString()} Token
           </div>
         </div>
       )}
@@ -150,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between text-xs font-bold text-slate-800">
             <div className="flex items-center gap-1.5 text-emerald-700 text-[11px]">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Local Sandbox Active</span>
+              <span>本地安全沙箱已就绪</span>
             </div>
             <span className="flex h-2 w-2 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -158,7 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 leading-tight">
-            100% In-Browser • Zero Telemetry
+            100% 浏览器内存处理 • 零服务端回传
           </p>
         </div>
       </div>

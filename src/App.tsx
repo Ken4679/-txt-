@@ -18,7 +18,7 @@ export function App() {
   const [activePage, setActivePage] = useState<ActivePage>('dashboard');
   const [currentProject, setCurrentProject] = useState<ProjectSummary | null>(null);
   const [status, setStatus] = useState<ProcessStatus>({
-    message: 'Ready',
+    message: '系统就绪',
     progress: 0,
     isProcessing: false,
   });

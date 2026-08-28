@@ -71,7 +71,7 @@ export const PatchPage: React.FC<PatchPageProps> = ({
 
   const handleParseAiResponse = () => {
     if (!aiInputText.trim()) {
-      onShowToast('Please paste the AI response text before parsing.', 'error');
+      onShowToast('请先粘贴大模型返回的 Markdown 文本。', 'error');
       return;
     }
 
@@ -90,21 +90,21 @@ export const PatchPage: React.FC<PatchPageProps> = ({
       });
       setSelectedFilePaths(initialSelected);
 
-      onStatusChange(`Extracted ${result.files.length} modified files`, 100);
+      onStatusChange(`成功提取 ${result.files.length} 个变动代码文件`, 100);
       onShowToast(
-        `Extracted ${result.files.length} files from AI output${
-          result.autoClosedCount > 0 ? ` (${result.autoClosedCount} truncated code fences healed)` : ''
+        `🎉 成功提取 ${result.files.length} 个文件${
+          result.autoClosedCount > 0 ? `（已自动修复 ${result.autoClosedCount} 处未闭合代码块）` : ''
         }`,
         'success'
       );
     } catch (err: any) {
-      onShowToast(err.message || 'Failed to parse AI response.', 'error');
+      onShowToast(err.message || '解析 AI 响应失败，请检查输入格式。', 'error');
     }
   };
 
   const handleLoadSample = () => {
     setAiInputText(SAMPLE_AI_OUTPUT);
-    onShowToast('Loaded sample AI code response.', 'info');
+    onShowToast('已加载示例 AI 代码响应。', 'info');
   };
 
   const handleToggleSelectAll = () => {
@@ -120,18 +120,18 @@ export const PatchPage: React.FC<PatchPageProps> = ({
 
     const filesToInclude = parsedFiles.filter(f => selectedFilePaths.has(f.relativePath));
     if (filesToInclude.length === 0) {
-      onShowToast('Please select at least one file to include in the Patch ZIP.', 'error');
+      onShowToast('请至少勾选一个需要打包入 Patch ZIP 的文件。', 'error');
       return;
     }
 
     const hasSensitive = filesToInclude.some(f => f.isSensitive);
     if (hasSensitive && !allowSensitive) {
-      onShowToast('Contains sensitive credentials (.env / keys). Please check permission to include them.', 'error');
+      onShowToast('选中的文件中包含敏感凭据（.env / key），请先勾选允许包含敏感文件权限。', 'error');
       return;
     }
 
     setIsExporting(true);
-    onStatusChange('Generating Patch ZIP archive...', 50);
+    onStatusChange('正在生成 Patch ZIP 压缩包...', 50);
 
     try {
       const zipBlob = await generatePatchZip(filesToInclude, {
@@ -150,11 +150,11 @@ export const PatchPage: React.FC<PatchPageProps> = ({
       URL.revokeObjectURL(url);
 
       setIsExporting(false);
-      onStatusChange(`Exported ${filesToInclude.length} files to Patch ZIP`, 100);
-      onShowToast(`Exported ${filesToInclude.length} files to Patch ZIP archive!`, 'success');
+      onStatusChange(`成功导出 ${filesToInclude.length} 个文件至 Patch ZIP`, 100);
+      onShowToast(`🎉 成功导出包含 ${filesToInclude.length} 个文件的 Patch ZIP 补丁包！`, 'success');
     } catch (err: any) {
       setIsExporting(false);
-      onShowToast(err.message || 'Failed to generate Patch ZIP.', 'error');
+      onShowToast(err.message || '生成 Patch ZIP 失败。', 'error');
     }
   };
 
@@ -183,11 +183,11 @@ export const PatchPage: React.FC<PatchPageProps> = ({
       <div>
         <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700 uppercase tracking-wider">
           <FileCode className="w-4 h-4" />
-          <span>Workflow Step 02</span>
+          <span>流程步骤 02</span>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900 mt-1">Apply AI Patch (Markdown → Patch ZIP)</h1>
+        <h1 className="text-2xl font-bold text-slate-900 mt-1">应用 AI 补丁 (Markdown → Patch ZIP)</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Paste the raw response from Claude, GPT-4o, DeepSeek, or Gemini. We will safely extract the files, show visual diffs, and package them into a Patch ZIP.
+          直接粘贴 Claude、GPT-4o、DeepSeek、Gemini 等大模型返回的代码文本。系统将宽容解析文件路径、审查行级 Diff 并一键打包为安全可直接解压覆盖的 Patch ZIP 补丁。
         </p>
       </div>
 
@@ -195,9 +195,9 @@ export const PatchPage: React.FC<PatchPageProps> = ({
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="text-xs font-bold text-slate-800 flex items-center gap-2">
-            <span>Paste AI Markdown Response:</span>
+            <span>第一步：粘贴大模型返回的 Markdown 内容：</span>
             <span className="text-slate-400 font-normal">
-              (Recognizes ### FILE: path, **FILE:** path, ```ts:path)
+              (支持 ### FILE: path, **FILE:** path, ```ts:path 等标记)
             </span>
           </label>
 
@@ -207,15 +207,15 @@ export const PatchPage: React.FC<PatchPageProps> = ({
               className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Load Sample Response</span>
+              <span>载入示例数据</span>
             </button>
 
             {aiInputText && (
               <button
                 onClick={() => setAiInputText('')}
-                className="text-xs text-slate-400 hover:text-slate-700"
+                className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer"
               >
-                Clear
+                清空
               </button>
             )}
           </div>
@@ -224,7 +224,7 @@ export const PatchPage: React.FC<PatchPageProps> = ({
         <textarea
           id="ai-markdown-input"
           rows={7}
-          placeholder="Paste AI response here... e.g. ### FILE: src/auth/service.ts ```typescript ... ```"
+          placeholder="在此直接粘贴大模型回复的完整内容... 例如：### FILE: src/auth/service.ts ```typescript ... ```"
           value={aiInputText}
           onChange={e => setAiInputText(e.target.value)}
           className="w-full text-xs font-mono p-4 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
@@ -233,7 +233,7 @@ export const PatchPage: React.FC<PatchPageProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
           <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Auto-heals unclosed code fences • Blocks Zip Slip traversal • Sanitizes Unicode</span>
+            <span>自动闭合截断反引号 • 拦截 Zip Slip 路径逃逸 • 清洗 Unicode 木马源</span>
           </div>
 
           <button
@@ -247,7 +247,7 @@ export const PatchPage: React.FC<PatchPageProps> = ({
             }`}
           >
             <GitCompare className="w-4 h-4" />
-            <span>Parse & Inspect AI Changes</span>
+            <span>解析并审查代码变更</span>
           </button>
         </div>
       </div>
@@ -257,7 +257,7 @@ export const PatchPage: React.FC<PatchPageProps> = ({
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 space-y-1.5">
           <div className="font-bold flex items-center gap-1.5 text-amber-950">
             <AlertTriangle className="w-4 h-4 text-amber-600" />
-            <span>Parser Notice & Auto-Healed Blocks ({autoClosedCount})</span>
+            <span>解析提示与自动修复项 ({autoClosedCount})</span>
           </div>
           <ul className="list-disc list-inside space-y-0.5 text-[11px] text-amber-800">
             {warnings.map((w, idx) => (
@@ -267,7 +267,7 @@ export const PatchPage: React.FC<PatchPageProps> = ({
         </div>
       )}
 
-      {/* Step 2: Parsed Files Review & Export */}
+      {/* Step 2 & 3: Parsed Files Review & Export */}
       {parsedFiles.length > 0 && (
         <div className="space-y-6">
           {/* Action Bar */}
@@ -278,10 +278,10 @@ export const PatchPage: React.FC<PatchPageProps> = ({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
-                  Ready to Export Patch Archive
+                  补丁导出已就绪
                 </h3>
                 <p className="text-xs text-slate-500">
-                  {selectedFilePaths.size} of {parsedFiles.length} files selected for export
+                  已勾选 {selectedFilePaths.size} / 共 {parsedFiles.length} 个文件包含在 Patch ZIP 中
                 </p>
               </div>
             </div>
@@ -294,7 +294,7 @@ export const PatchPage: React.FC<PatchPageProps> = ({
                 className="px-5 py-2.5 text-xs font-semibold rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-98"
               >
                 <Download className="w-4 h-4" />
-                <span>{isExporting ? 'Packaging...' : 'Download Patch ZIP'}</span>
+                <span>{isExporting ? '正在打包...' : '下载 Patch ZIP 补丁包'}</span>
               </button>
             </div>
           </div>
@@ -305,8 +305,8 @@ export const PatchPage: React.FC<PatchPageProps> = ({
               <div className="flex items-center gap-2">
                 <Lock className="w-4 h-4 text-rose-600 shrink-0" />
                 <div>
-                  <span className="font-bold">Detected {sensitiveFilesCount} Sensitive File(s): </span>
-                  <span>Credentials or environment configs are protected.</span>
+                  <span className="font-bold">检测到 {sensitiveFilesCount} 个敏感凭据文件：</span>
+                  <span>包含环境变量或密钥文件，已默认开启安全保护。</span>
                 </div>
               </div>
               <label className="flex items-center gap-2 font-medium cursor-pointer shrink-0">
@@ -316,12 +316,12 @@ export const PatchPage: React.FC<PatchPageProps> = ({
                   onChange={e => {
                     setAllowSensitive(e.target.checked);
                     if (e.target.checked) {
-                      onShowToast('Enabled sensitive files permission for patch generation.', 'info');
+                      onShowToast('已启用允许将敏感凭据文件打包进 Patch ZIP 权限。', 'info');
                     }
                   }}
                   className="rounded border-rose-300 text-rose-600 focus:ring-rose-500"
                 />
-                <span>Allow sensitive files in patch</span>
+                <span>允许包含敏感凭据文件</span>
               </label>
             </div>
           )}
@@ -331,15 +331,15 @@ export const PatchPage: React.FC<PatchPageProps> = ({
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <GitCompare className="w-4 h-4 text-indigo-600" />
-                <span>Visual Code Inspection & Diff</span>
+                <span>代码变更行级审查 (Diff)</span>
               </h3>
 
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleToggleSelectAll}
-                  className="text-xs text-slate-600 hover:text-slate-900 font-medium px-2 py-1 rounded hover:bg-slate-100"
+                  className="text-xs text-slate-600 hover:text-slate-900 font-medium px-2 py-1 rounded hover:bg-slate-100 cursor-pointer"
                 >
-                  {selectedFilePaths.size === parsedFiles.length ? 'Deselect All' : 'Select All'}
+                  {selectedFilePaths.size === parsedFiles.length ? '取消全选' : '全选所有文件'}
                 </button>
               </div>
             </div>

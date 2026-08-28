@@ -85,26 +85,26 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 font-bold text-slate-800 text-sm">
             <GitCompare className="w-4 h-4 text-indigo-600" />
-            <span>Changes Review</span>
+            <span>代码变更审查 (Diff)</span>
           </div>
 
           <div className="flex items-center gap-2 text-xs font-mono">
             <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-medium">
-              {diffFiles.length} file{diffFiles.length > 1 ? 's' : ''} changed
+              共 {diffFiles.length} 个文件变动
             </span>
             {stats.added > 0 && (
               <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
-                +{stats.added} added
+                +{stats.added} 新增
               </span>
             )}
             {stats.modified > 0 && (
               <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-medium">
-                ~{stats.modified} modified
+                ~{stats.modified} 修改
               </span>
             )}
             {stats.deleted > 0 && (
               <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-medium">
-                -{stats.deleted} deleted
+                -{stats.deleted} 删除
               </span>
             )}
           </div>
@@ -116,7 +116,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             className="px-3 py-1.5 text-xs font-medium bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied Code' : 'Copy File'}</span>
+            <span>{copied ? '已复制代码' : '复制当前文件'}</span>
           </button>
         </div>
       </div>
@@ -130,7 +130,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Filter changed files..."
+                placeholder="筛选变动文件..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700"
@@ -168,7 +168,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                         : 'bg-rose-100 text-rose-800'
                     }`}
                   >
-                    {file.status === 'added' ? '+ADD' : file.status === 'modified' ? '~MOD' : '-DEL'}
+                    {file.status === 'added' ? '+ 新增' : file.status === 'modified' ? '~ 修改' : '- 删除'}
                   </span>
                 </button>
               );
@@ -176,7 +176,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
             {filteredFiles.length === 0 && (
               <div className="p-4 text-center text-xs text-slate-400">
-                No matching files found.
+                无匹配的变动文件。
               </div>
             )}
           </div>
@@ -197,13 +197,13 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   )}
                   {currentFile.isSensitive && (
                     <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-semibold">
-                      Sensitive Credential
+                      敏感凭据文件
                     </span>
                   )}
                 </div>
 
                 <span className="text-slate-400 text-[11px] font-mono">
-                  {currentFile.newContent.split('\n').length} lines
+                  {currentFile.newContent.split('\n').length} 行代码
                 </span>
               </div>
 
@@ -214,7 +214,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-slate-400 text-xs">
-              Select a file on the left to inspect code changes.
+              请从左侧列表选择文件以审查代码变更。
             </div>
           )}
         </div>

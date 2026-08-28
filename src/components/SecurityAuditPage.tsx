@@ -32,15 +32,15 @@ export const SecurityAuditPage: React.FC = () => {
         normalized,
         isSensitive: isSens,
         message: isSens
-          ? '⚠️ Valid relative path, but contains sensitive keys or credentials (protected by default).'
-          : '✅ Safe, fully compliant relative path.',
+          ? '⚠️ 路径格式合规，但命中敏感凭据/私钥规则（默认被保护隔离）。'
+          : '✅ 安全合规的相对文件路径。',
       };
     } catch (e: any) {
       return {
         valid: false,
         normalized: '',
         isSensitive: false,
-        message: `❌ Security Block: ${e.message || 'Illegal path'}`,
+        message: `❌ 安全拦截：${e.message || '非法文件路径'}`,
       };
     }
   };
@@ -49,56 +49,56 @@ export const SecurityAuditPage: React.FC = () => {
 
   const securityItems = [
     {
-      title: 'Zip Slip & Path Traversal Defense',
+      title: 'Zip Slip 与路径穿越深度拦截',
       level: 'CRITICAL',
-      desc: 'Strictly blocks directory traversal sequences like "..", "%2e%2e", absolute paths (/etc/passwd, C:\\), and UNC network shares (\\\\server\\share), preventing malicious archives from escaping outside repository boundaries.',
+      desc: '严格阻断 ".."、"%2e%2e"、绝对路径 (/etc/passwd, C:\\) 以及 UNC 网络共享路径 (\\\\server\\share)，杜绝恶意压缩包逃逸出工作区目录。',
       icon: <Lock className="w-5 h-5 text-emerald-600" />,
-      status: 'Active Defense',
+      status: '主动拦截',
     },
     {
-      title: 'Windows Reserved Device Names Protection',
+      title: 'Windows 保留设备名防御',
       level: 'HIGH',
-      desc: 'Filters Windows special device files (CON, PRN, AUX, NUL, COM1-9, LPT1-9, and suffixes like aux.py) to prevent filesystem lockups or OS crashes on Windows developer machines.',
+      desc: '过滤 Windows 保留设备名称（CON, PRN, AUX, NUL, COM1-9, LPT1-9 及 aux.py 等后缀），防止在 Windows 操作系统解压时造成文件锁死或系统异常。',
       icon: <Cpu className="w-5 h-5 text-indigo-600" />,
-      status: 'Active Defense',
+      status: '主动拦截',
     },
     {
-      title: 'Unicode Trojan Source & Invisible Character Sanitization',
+      title: 'Unicode Trojan Source 与不可见字符清洗',
       level: 'HIGH',
-      desc: 'Strips bidirectional override characters (\\u202A-\\u202E), zero-width spaces (\\u200B-\\u200F), and null-byte injection (\\0) to prevent visual spoofing or stealth payload delivery.',
+      desc: '剥离双向文本覆盖字符 (\\u202A-\\u202E)、零宽空格 (\\u200B-\\u200F) 以及空字节注入 (\\0)，防止代码视觉欺骗与隐蔽载荷注入。',
       icon: <Terminal className="w-5 h-5 text-indigo-600" />,
-      status: 'Active Sanitization',
+      status: '主动清洗',
     },
     {
-      title: 'Zip Bomb & Resource Exhaustion Limits',
+      title: 'Zip Bomb 压缩炸弹与资源消耗配额',
       level: 'CRITICAL',
-      desc: `Enforces single file limit ${humanSize(MAX_ZIP_SINGLE_FILE_BYTES)}, total uncompressed limit ${humanSize(MAX_ZIP_UNCOMPRESSED_BYTES)}, and member count limit ${MAX_ZIP_MEMBERS.toLocaleString()} to protect browser memory and system stability.`,
+      desc: `限制单文件上限 ${humanSize(MAX_ZIP_SINGLE_FILE_BYTES)}、解压总上限 ${humanSize(MAX_ZIP_UNCOMPRESSED_BYTES)} 以及最多 ${MAX_ZIP_MEMBERS.toLocaleString()} 个文件，保护浏览器内存与系统稳定。`,
       icon: <HardDrive className="w-5 h-5 text-amber-600" />,
-      status: 'Resource Bounds',
+      status: '资源配额',
     },
     {
-      title: 'Sensitive Credentials & Secret Key Shield',
+      title: '敏感凭据与私钥安全隔离屏障',
       level: 'HIGH',
-      desc: 'Automatically quarantines .env files, private keys (id_rsa, id_ed25519, .pem), cloud credentials, and .git internals during patch generation unless explicitly confirmed by the user.',
+      desc: '在解析与补丁生成时，自动标记并隔离 .env 环境变量、SSH 私钥 (id_rsa, id_ed25519, .pem)、云凭据及 .git 内部对象，需用户主动授权才能打包。',
       icon: <AlertOctagon className="w-5 h-5 text-rose-600" />,
-      status: 'Isolated Permission',
+      status: '权限隔离',
     },
     {
-      title: '100% Client-Side Local Execution Sandbox',
+      title: '100% 浏览器本地私密沙箱',
       level: 'PRIVACY',
-      desc: 'All ZIP parsing, text serialization, SHA-256 digests, token estimation, and patch creation occur exclusively inside your local browser runtime. No code is transmitted to remote servers.',
+      desc: '所有 ZIP 解压、文本序列化、SHA-256 哈希计算、Token 估算及补丁打包均完全在您当前的浏览器内存中执行，无任何代码上传至外部服务器。',
       icon: <ShieldCheck className="w-5 h-5 text-blue-600" />,
-      status: '100% Local',
+      status: '100% 本地',
     },
   ];
 
   const limits = [
-    { label: 'Max ZIP Archive Size', val: humanSize(MAX_ZIP_BYTES) },
-    { label: 'Max Single File Size', val: humanSize(MAX_ZIP_SINGLE_FILE_BYTES) },
-    { label: 'Max Total Uncompressed Size', val: humanSize(MAX_ZIP_UNCOMPRESSED_BYTES) },
-    { label: 'Max Archive Members', val: `${MAX_ZIP_MEMBERS.toLocaleString()} files` },
-    { label: 'Max AI Input Payload', val: humanSize(MAX_AI_INPUT_BYTES) },
-    { label: 'Max AI Output Extraction', val: humanSize(MAX_AI_TOTAL_OUTPUT_BYTES) },
+    { label: 'ZIP 压缩包最大体积', val: humanSize(MAX_ZIP_BYTES) },
+    { label: '单文件最大解压体积', val: humanSize(MAX_ZIP_SINGLE_FILE_BYTES) },
+    { label: '解压后总数据上限', val: humanSize(MAX_ZIP_UNCOMPRESSED_BYTES) },
+    { label: '最大归档文件总数', val: `${MAX_ZIP_MEMBERS.toLocaleString()} 个` },
+    { label: 'AI 输入文本最大上限', val: humanSize(MAX_AI_INPUT_BYTES) },
+    { label: 'AI 补丁导出最大上限', val: humanSize(MAX_AI_TOTAL_OUTPUT_BYTES) },
   ];
 
   return (
@@ -107,11 +107,11 @@ export const SecurityAuditPage: React.FC = () => {
       <div>
         <div className="flex items-center gap-2 text-xs font-semibold text-indigo-600 uppercase tracking-wider">
           <ShieldCheck className="w-4 h-4" />
-          <span>Security Architecture</span>
+          <span>安全架构体系</span>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900 mt-1">Security Audit & Quota Bounds</h1>
+        <h1 className="text-2xl font-bold text-slate-900 mt-1">安全审计与防护配额</h1>
         <p className="text-sm text-slate-500 mt-1">
-          ZipToTxt implements enterprise-grade input sanitization, Zip Slip mitigation, and client-side sandboxing.
+          ZipToTxt 遵循企业级防御标准，提供严苛的输入清洗、Zip Slip 路径逃逸防御与纯本地沙箱保障。
         </p>
       </div>
 
@@ -120,10 +120,10 @@ export const SecurityAuditPage: React.FC = () => {
         <div>
           <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
             <Terminal className="w-4 h-4 text-indigo-600" />
-            <span>Interactive Path Sanitization Sandbox</span>
+            <span>交互式路径清洗与安全沙箱测试</span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Test any file path against the real-time Zip Slip, Trojan Source, and Reserved Device Name defense engine.
+            输入任意文件路径，即时测试 Zip Slip、Trojan Source 及 Windows 保留设备名的实时防御效果。
           </p>
         </div>
 
@@ -132,7 +132,7 @@ export const SecurityAuditPage: React.FC = () => {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Try: ../etc/passwd, src/main.py, CON.txt, or .env"
+              placeholder="测试输入：../etc/passwd, src/main.py, CON.txt, 或 .env"
               value={testPath}
               onChange={e => setTestPath(e.target.value)}
               className="w-full pl-9 pr-4 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -141,7 +141,7 @@ export const SecurityAuditPage: React.FC = () => {
 
           {/* Quick preset buttons */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <span className="text-[11px] text-slate-400">Quick Test Cases:</span>
+            <span className="text-[11px] text-slate-400">快速测试用例：</span>
             {[
               'src/components/App.tsx',
               '../etc/passwd',
@@ -174,7 +174,7 @@ export const SecurityAuditPage: React.FC = () => {
               <div className="font-sans font-bold mb-1">{validation.message}</div>
               {validation.valid && (
                 <div>
-                  <span className="text-slate-500 font-sans">Normalized Clean Path: </span>
+                  <span className="text-slate-500 font-sans">规范化后安全路径：</span>
                   <span className="font-bold">{validation.normalized}</span>
                 </div>
               )}
@@ -218,7 +218,7 @@ export const SecurityAuditPage: React.FC = () => {
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
         <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
           <HardDrive className="w-4 h-4 text-indigo-600" />
-          <span>Operational Quotas & Resource Boundaries</span>
+          <span>运行配额与资源边界限制</span>
         </h3>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

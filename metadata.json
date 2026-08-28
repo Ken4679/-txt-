@@ -1,6 +1,6 @@
 {
   "name": "ZipToTxt",
-  "description": "Convert GitHub repository ZIP archives to single TXT files for AI analysis and reconstruct AI code outputs into patch ZIP archives.",
+  "description": "专业的代码库 ZIP 转 AI 上下文 TXT 与 AI 补丁 Patch 生成工作台，支持浏览器本地沙箱与 Zip Slip 安全防护。",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
