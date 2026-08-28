@@ -223,9 +223,12 @@ export function parseAiBlocks(rawText: string): ParseResult {
  */
 export async function generatePatchZip(
   files: ParsedAiFile[],
-  allowSensitive: boolean,
+  options?: { allowSensitive?: boolean; compressionLevel?: number } | boolean,
   selectedPaths?: Set<string>
 ): Promise<Blob> {
+  const allowSensitive = typeof options === 'boolean' ? options : !!options?.allowSensitive;
+  const compressionLevel = typeof options === 'object' && options?.compressionLevel ? options.compressionLevel : 9;
+
   const zip = new JSZip();
 
   for (const file of files) {
@@ -241,6 +244,9 @@ export async function generatePatchZip(
   return await zip.generateAsync({
     type: 'blob',
     compression: 'DEFLATE',
-    compressionOptions: { level: 9 },
+    compressionOptions: { level: compressionLevel },
   });
 }
+
+export const parseAiOutput = parseAiBlocks;
+export const createPatchZip = generatePatchZip;

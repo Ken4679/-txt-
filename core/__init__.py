@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Core processing module for ZipToTxt (Enhanced Security, High Fault-Tolerance & Accurate Token Estimation)
-Provides backward compatibility facade for the modular core package.
+ZipToTxt Core Package - Industrial Grade Security, Repo Serialization & AI Patching.
 """
 
-from core.constants import (
+from .constants import (
     MAX_ZIP_BYTES,
     MAX_ZIP_MEMBERS,
     MAX_ZIP_UNCOMPRESSED_BYTES,
@@ -19,7 +18,6 @@ from core.constants import (
     SENSITIVE_DIR_NAMES,
     WINDOWS_RESERVED_NAMES,
     IGNORED_METADATA_FILES,
-    COMMON_IGNORE_FOLDERS,
     AI_PRIMARY_PROMPT,
     AI_CONTINUE_PROMPT,
     AI_REVIEW_PROMPT,
@@ -27,7 +25,7 @@ from core.constants import (
     AI_AUDIT_PROMPT_EN,
 )
 
-from core.models import (
+from .models import (
     SecurityError,
     ZipSecurityConfig,
     ZipFileEntry,
@@ -37,7 +35,7 @@ from core.models import (
     RepoContextResult,
 )
 
-from core.security import (
+from .security import (
     normalize_ai_path,
     is_safe_relative_path,
     is_sensitive_path,
@@ -46,30 +44,30 @@ from core.security import (
     calculate_sha256,
 )
 
-from core.text import (
+from .text import (
     is_binary_data,
     is_text_file,
     decode_text,
     get_file_language,
 )
 
-from core.token import (
+from .token import (
     estimate_tokens,
     estimate_tokens_detailed,
 )
 
-from core.archive import (
+from .archive import (
     safe_extract_zip,
     generate_ascii_tree,
     scan_and_format_repo,
 )
 
-from core.parser import (
+from .parser import (
     parse_ai_blocks,
     parse_ai_output,
 )
 
-from core.patch import (
+from .patch import (
     create_patch_zip,
     write_parsed_files_to_dir,
 )
@@ -89,7 +87,6 @@ __all__ = [
     "SENSITIVE_DIR_NAMES",
     "WINDOWS_RESERVED_NAMES",
     "IGNORED_METADATA_FILES",
-    "COMMON_IGNORE_FOLDERS",
     "AI_PRIMARY_PROMPT",
     "AI_CONTINUE_PROMPT",
     "AI_REVIEW_PROMPT",
