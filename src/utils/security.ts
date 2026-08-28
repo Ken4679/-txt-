@@ -28,7 +28,6 @@ export function normalizeAiPath(rawPath: string): string {
   }
 
   // 1. Remove dangerous zero-width, bidi override, control and null characters
-  // \u202A-\u202E (Bidi overrides), \u200B-\u200F (Zero-width), \u0000-\u001F, \0 (Null byte)
   let path = rawPath
     .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\uFEFF]/g, '')
     .trim();
@@ -50,18 +49,23 @@ export function normalizeAiPath(rawPath: string): string {
   }
   path = decoded;
 
-  // 3. Normalize slashes & trim markdown code markers / quotes
+  // 3. Normalize backslashes to forward slashes & trim markdown code markers / quotes / brackets
   path = path
     .replace(/\\/g, '/')
-    .replace(/^[`"'\s*#]+|[`"'\s*#]+$/g, '')
+    .replace(/^[`"'\s*#\[\(]+|[`"'\s*#\]\)]+$/g, '')
     .trim();
 
   if (!path) {
     throw new Error(`非法空文件路径: ${JSON.stringify(rawPath)}`);
   }
 
-  // 4. Disallow absolute paths, UNC network shares, and drive letters (C:, D:, /etc/..., //server/...)
+  // 4. Remove leading slashes and relative './' or '.\\' prefixes
   path = path.replace(/^\/+/, '');
+  while (path.startsWith('./')) {
+    path = path.slice(2).replace(/^\/+/, '');
+  }
+
+  // Disallow absolute paths, UNC network shares, and drive letters (C:, D:, /etc/..., //server/...)
   if (/^[A-Za-z]:/.test(path) || path.startsWith('//') || path.startsWith('\\\\')) {
     throw new Error(`必须使用仓库相对路径，禁止绝对路径与网络共享路径: ${rawPath}`);
   }

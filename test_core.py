@@ -8,6 +8,7 @@ from core import (
     is_text_file,
     human_size,
     estimate_tokens,
+    estimate_tokens_detailed,
     safe_extract_zip,
     scan_and_format_repo,
     parse_ai_blocks,
@@ -28,6 +29,10 @@ def run_tests():
     assert normalize_ai_path('src/main.py') == 'src/main.py'
     assert normalize_ai_path('.github/workflows/build.yml') == '.github/workflows/build.yml'
     assert normalize_ai_path('   `src/utils/tool.ts`   ') == 'src/utils/tool.ts'
+    assert normalize_ai_path('./src/components/App.tsx') == 'src/components/App.tsx'
+    assert normalize_ai_path('.\\src\\components\\App.tsx') == 'src/components/App.tsx'
+    assert normalize_ai_path('**src/main.py**') == 'src/main.py'
+    assert normalize_ai_path('[src/main.py]') == 'src/main.py'
     
     # 2. Path traversal security (Zip Slip)
     try:
@@ -56,7 +61,20 @@ def run_tests():
     assert is_text_file('main.py') == True
     assert is_text_file('image.png') == False
 
-    # 5. AI block parsing & healing
+    # 5. Accurate Token Estimation
+    code_sample = """
+    function calculateTotal(items: CartItem[]): number {
+        return items.reduce((acc, curr) => acc + curr.price * curr.quantity, 0);
+    }
+    // 这是中文注释：计算购物车总价格
+    """
+    token_stats = estimate_tokens_detailed(code_sample)
+    assert token_stats["estimated_tokens"] > 0
+    assert token_stats["chinese_chars"] > 0
+    assert token_stats["gpt4o_tokens"] > 0
+    assert token_stats["claude_tokens"] > 0
+
+    # 6. AI block parsing & healing
     sample = """
 ### FILE: a.py
 ```python
@@ -76,7 +94,7 @@ jobs:
     assert res['a.py'] == 'print(1)'
     assert '.github/workflows/ci.yml' in res
 
-    # 6. Truncated block auto-healing
+    # 7. Truncated block auto-healing
     truncated_sample = "### FILE: b.py\n```python\ndef hello():\n    return 'world'"
     res_trunc = parse_ai_blocks(truncated_sample)
     assert 'b.py' in res_trunc

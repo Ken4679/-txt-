@@ -1,4 +1,7 @@
-# Core processing module for ZipToTxt (Enhanced with Security & High Fault-Tolerance)
+# -*- coding: utf-8 -*-
+"""
+Core processing module for ZipToTxt (Enhanced Security, High Fault-Tolerance & Accurate Token Estimation)
+"""
 import os
 import re
 import io
@@ -7,26 +10,30 @@ import base64
 import zipfile
 import tempfile
 import urllib.parse
-import hashlib
 from typing import Dict, List, Tuple, Optional, Set, Any
 
 # Security Thresholds
-MAX_ZIP_BYTES = 512 * 1024 * 1024
-MAX_ZIP_MEMBERS = 15_000
-MAX_ZIP_UNCOMPRESSED_BYTES = 1 * 1024 * 1024 * 1024
-MAX_ZIP_SINGLE_FILE_BYTES = 256 * 1024 * 1024
-MAX_AI_INPUT_BYTES = 35 * 1024 * 1024
-MAX_AI_FILES = 3_000
-MAX_AI_TOTAL_OUTPUT_BYTES = 120 * 1024 * 1024
-MAX_AI_SINGLE_OUTPUT_BYTES = 15 * 1024 * 1024
+MAX_ZIP_BYTES = 512 * 1024 * 1024               # 512 MB input zip limit
+MAX_ZIP_MEMBERS = 15_000                         # 15,000 files limit
+MAX_ZIP_UNCOMPRESSED_BYTES = 1 * 1024 * 1024 * 1024 # 1.0 GB total uncompressed limit
+MAX_ZIP_SINGLE_FILE_BYTES = 256 * 1024 * 1024    # 256 MB single file limit
+MAX_AI_INPUT_BYTES = 35 * 1024 * 1024            # 35 MB input markdown limit
+MAX_AI_FILES = 3_000                             # 3,000 parsed files limit
+MAX_AI_TOTAL_OUTPUT_BYTES = 120 * 1024 * 1024    # 120 MB total parsed output limit
+MAX_AI_SINGLE_OUTPUT_BYTES = 15 * 1024 * 1024    # 15 MB single parsed output limit
 
 class SecurityError(Exception):
+    """Raised when security boundaries (ZipSlip, ZipBomb, Path Escaping) are breached."""
     pass
 
 class ZipSecurityConfig:
-    def __init__(self, max_zip_bytes=MAX_ZIP_BYTES, max_members=MAX_ZIP_MEMBERS,
-                 max_uncompressed_bytes=MAX_ZIP_UNCOMPRESSED_BYTES,
-                 max_single_file_bytes=MAX_ZIP_SINGLE_FILE_BYTES):
+    def __init__(
+        self,
+        max_zip_bytes: int = MAX_ZIP_BYTES,
+        max_members: int = MAX_ZIP_MEMBERS,
+        max_uncompressed_bytes: int = MAX_ZIP_UNCOMPRESSED_BYTES,
+        max_single_file_bytes: int = MAX_ZIP_SINGLE_FILE_BYTES
+    ):
         self.max_zip_bytes = max_zip_bytes
         self.max_members = max_members
         self.max_uncompressed_bytes = max_uncompressed_bytes
@@ -40,11 +47,13 @@ SENSITIVE_FILE_NAMES = {
     '.npmrc', '.pypirc', '.netrc', '.htpasswd', '.dockercfg', 'config.json',
     'keystore.jks', 'master.key', 'client_secret.json', 'firebase-adminsdk.json'
 }
+
 WINDOWS_RESERVED_NAMES = {
     'CON', 'PRN', 'AUX', 'NUL',
     'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
     'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
 }
+
 TEXT_EXTENSIONS = {
     '.txt', '.md', '.markdown', '.rst', '.py', '.pyw', '.js', '.jsx', '.mjs', '.cjs',
     '.ts', '.tsx', '.java', '.kt', '.kts', '.c', '.h', '.cc', '.cpp', '.cxx', '.hpp',
@@ -55,6 +64,7 @@ TEXT_EXTENSIONS = {
     '.vue', '.svelte', '.astro', '.sol', '.proto', '.graphql', '.gql', '.tf', '.hcl',
     '.r', '.dart', '.scala', '.erl', '.ex', '.exs', '.clj', '.cljs', '.edn'
 }
+
 TEXT_FILENAMES = {
     'Dockerfile', 'Makefile', 'CMakeLists.txt', 'LICENSE', 'LICENSE.txt', 'LICENSE.md',
     'README', 'README.txt', 'README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md',
@@ -67,8 +77,7 @@ TEXT_FILENAMES = {
     'Procfile', 'CNAME', 'docker-compose.yml', 'docker-compose.yaml', 'nginx.conf'
 }
 
-# ====================== Prompt 模板（使用三单引号，防止内部双引号干扰） ======================
-AI_PRIMARY_PROMPT = '''I am sharing a complete source-code repository exported into a TXT file.
+AI_PRIMARY_PROMPT = """I am sharing a complete source-code repository exported into a TXT file.
 
 Please implement this requirement:
 [DESCRIBE YOUR REQUIREMENT HERE]
@@ -83,33 +92,26 @@ complete file content
 ```
 4. Always return complete file content. Never use placeholders (e.g. do not use "...keep existing code...").
 5. Preserve repository-relative paths.
-6. If a file is long, continue in multiple messages without omitting content.
-'''
+6. If a file is long, continue in multiple messages without omitting content."""
 
-AI_CONTINUE_PROMPT = '''Continue exactly where your previous response stopped.
-Do not restart completed files. Do not summarize or explain. Output remaining complete source code files only.
-Format:
+AI_CONTINUE_PROMPT = """Continue exactly where your previous response stopped.
+Do not restart completed files. Do not summarize. Output remaining complete source code only.
+Use:
 ### FILE: relative/path/to/file.ext
 ```language
 complete file content
-```'''
+```"""
 
-AI_REVIEW_PROMPT = '''You are a senior code reviewer. Please review the following repository and provide a detailed analysis including potential bugs, security issues, performance improvements, and code style suggestions.
+AI_AUDIT_PROMPT_CN = """你是一名兼具【顶级软件架构师】、【首席安全审计专家】与【生产交付负责人】三重身份的技术权威。你正在审计一份通过 TXT 格式全量导出的代码仓库。
+该项目为 AI 辅助敏捷编程（Vibe Coding）产物，尽管功能逻辑貌似闭环，但由于大模型概率采样特性，极大概率潜藏【架构坏味道】、【静默异常】、【资源泄漏】与【致命安全漏洞】。
 
-Format your response as:
-### FILE: path
-```language
-// comments and suggestions
-```'''
-
-AI_AUDIT_PROMPT_CN = '''你是一名兼具【顶级软件架构师】、【首席安全审计专家】与【生产交付负责人】三重身份的技术权威。你正在审计一份通过 TXT 格式全量导出的代码仓库。
-该项目包含 AI 辅助敏捷编程产物，请以严苛的【工业级生产上线（Zero-Bug & High-Reliability）】标准进行端到端全方位深度审计，并针对所有瑕疵直接输出【100% 完整、可直接打补丁替换上线的生产级源代码】。
+你的唯一使命：以严苛的【工业级生产上线（Zero-Bug & High-Reliability）】标准进行端到端全方位深度审计，并针对所有瑕疵直接输出【100% 完整、可直接打补丁替换上线的生产级源代码】。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【审计维度与检查矩阵】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. 架构严谨性与代码异味 (Architecture & Code Smells)：
-   - 依赖边界：排查模块循环引用、上帝类/过度膨胀函数、单一职责原则（SRP）。
+1. 架构严谨性与高内聚低耦合 (Architecture & Code Smells)：
+   - 依赖边界：排查模块交叉依赖、循环引用、上帝类/过度膨胀函数，检查单一职责原则（SRP）。
    - 数据流与状态：排查竞态条件（Race Conditions）、状态失真、未清理的全局副作用、不可达死代码。
 2. 功能完备性与防御性编码 (Completeness & Edge Cases)：
    - 异常处理：彻底排查静默吞异常（空的 catch 块）、未捕获的异步 Promise rejection、未校验的 API 返回格式。
@@ -147,295 +149,542 @@ AI_AUDIT_PROMPT_CN = '''你是一名兼具【顶级软件架构师】、【首�
 ```
 
 ### 04. 部署与冒烟测试清单 (Smoke Test Checklist)
-- 提供 3-5 步清晰的验证步骤或单元测试建议，确保修复后无任何功能破坏或回归。'''
+- 提供 3-5 步清晰的验证步骤或单元测试建议，确保修复后无任何功能破坏或回归。"""
 
-AI_AUDIT_PROMPT_EN = '''You are a Principal Software Architect, Lead Security Auditor, and Production Release Gatekeeper auditing a complete repository exported in TXT format.
-Your objective: Audit this entire codebase against rigorous, enterprise-grade production reliability standards and provide 100% complete, drop-in replacement remediation code.
+AI_REVIEW_PROMPT = AI_AUDIT_PROMPT_CN
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【AUDIT METHODOLOGY & SCOPE】
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. ARCHITECTURE & CODE SMELLS:
-   - Modularity: Eliminate tight coupling, circular dependencies, God-objects, and SRP violations.
-   - State & Concurrency: Spot race conditions, desynchronized states, unhandled side-effects, and unreachable code.
-2. FUNCTIONAL RESILIENCE & DEFENSIVE PROGRAMMING:
-   - Exception Handling: Eliminate swallowed errors (empty catch blocks), unhandled promise rejections, unchecked external payloads.
-   - Boundary Defense: Handle null/undefined destructuring, edge inputs, offline reconnection, network retry idempotency.
-   - Resource Safety: Prevent unclosed sockets/file descriptors, lingering intervals/listeners, database connection leaks, and memory retention.
-3. ENTERPRISE SECURITY & OWASP TOP 10 HARDENING:
-   - Injection vectors: SQLi, command injection (exec/eval/system), stored/reflected XSS, SSRF.
-   - Filesystem Safety: Zip Slip / path traversal escapes, dangerous file extensions, ReDoS regexes.
-   - Access & Credentials: Strip hardcoded secrets/keys, patch authorization bypasses (IDOR), verify CORS/CSP policies.
-4. OBSERVABILITY & RESILIENCE:
-   - Request timeouts, backoff/jitter retries, throttling/debouncing, and structured diagnostic logging.
+def human_size(value: int) -> str:
+    size = float(value)
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size < 1024.0 or unit == 'TB':
+            return f"{int(size)} B" if unit == 'B' else f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} PB"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【STRICT OUTPUT FORMAT】
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Structure your response into the following 4 sections:
+def is_text_file(filename: str) -> bool:
+    base = os.path.basename(filename)
+    if base in TEXT_FILENAMES:
+        return True
+    _, ext = os.path.splitext(filename)
+    return ext.lower() in TEXT_EXTENSIONS
 
-### 01. Production Readiness Verdict
-- Output explicit status: [READY FOR PROD] / [CONDITIONAL - FIXES REQUIRED] / [BLOCKED]
-- Provide a concise executive rationale.
+def estimate_tokens_detailed(text: str) -> Dict[str, Any]:
+    """
+    Industrial BPE-approximation Token Estimator for Python.
+    Calculates exact subwords, CJK characters, indentation blocks, and code symbols.
+    """
+    if not text:
+        return {
+            "estimated_tokens": 0,
+            "gpt4o_tokens": 0,
+            "claude_tokens": 0,
+            "gemini_tokens": 0,
+            "deepseek_tokens": 0,
+            "characters": 0,
+            "lines": 0,
+            "words": 0,
+            "chinese_chars": 0,
+            "punctuation_chars": 0,
+            "context_usage": {"gpt128k": 0.0, "claude200k": 0.0, "gemini1m": 0.0, "deepseek128k": 0.0}
+        }
 
-### 02. Critical Defect Matrix (Categorized by P0, P1, P2)
-- [Severity] File Path:Function Name
-  - Root Cause: ...
-  - Impact & Trigger Condition: ...
-  - Remediation Approach: ...
+    characters = len(text)
+    lines_arr = text.splitlines(keepends=False)
+    lines_count = len(lines_arr)
 
-### 03. Actionable Production-Ready Replacement Code
-★ STRICT RULE: For every modified file, output the 100% COMPLETE, production-hardened source code! NEVER truncate or use placeholders like "// keep existing logic" or "...".
-★ You MUST strictly format each file block for ZipToTxt compatibility:
-### FILE: relative/path/to/file.ext
-```language
-// Complete, fully refactored, hardened production code
-```
+    chinese_count = 0
+    punctuation_count = 0
+    word_count = 0
+    base_tokens = 0.0
 
-### 04. Deployment & Smoke Test Checklist
-- Provide 3-5 concrete verification steps/commands to ensure zero regressions after applying the patch.'''
+    cjk_re = re.compile(r'[\u4e00-\u9fa5\u3040-\u30ff\u3400-\u4dbf\uf900-\ufaff]')
+    punc_re = re.compile(r'[!@#$%^&*()_+\-=[\]{};\':"\\|,.<>/?`~]')
+    word_char_re = re.compile(r'[a-zA-Z0-9]')
 
-# ============================
-# 核心功能函数
-# ============================
+    for line in lines_arr:
+        if not line:
+            base_tokens += 1.0
+            continue
+
+        # Indentation handling
+        indent_len = len(line) - len(line.lstrip(' \t'))
+        if indent_len > 0:
+            indent_str = line[:indent_len]
+            spaces = indent_str.count(' ')
+            tabs = indent_str.count('\t')
+            base_tokens += (spaces + 3) // 4 + tabs
+
+        trimmed = line.strip()
+        if not trimmed:
+            base_tokens += 1.0
+            continue
+
+        i = 0
+        n = len(trimmed)
+        while i < n:
+            ch = trimmed[i]
+            if cjk_re.match(ch):
+                chinese_count += 1
+                base_tokens += 1.15
+                i += 1
+                continue
+            if punc_re.match(ch):
+                punctuation_count += 1
+                base_tokens += 1.0
+                i += 1
+                continue
+            if ch.isspace():
+                while i < n and trimmed[i].isspace():
+                    i += 1
+                base_tokens += 0.5
+                continue
+            if word_char_re.match(ch):
+                word_count += 1
+                w_start = i
+                while i < n and word_char_re.match(trimmed[i]):
+                    i += 1
+                word = trimmed[w_start:i]
+                # CamelCase/snake split
+                parts = re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\b)|[0-9]+', word) or [word]
+                for p in parts:
+                    if len(p) <= 4:
+                        base_tokens += 1.0
+                    else:
+                        base_tokens += max(1.0, len(p) / 3.6)
+                continue
+            base_tokens += 1.5
+            i += 1
+
+        base_tokens += 1.0 # newline
+
+    raw_tokens = int(round(base_tokens))
+    gpt4o_tokens = int(round(raw_tokens * 0.95))
+    claude_tokens = int(round(raw_tokens * 1.02))
+    gemini_tokens = int(round(raw_tokens * 0.97))
+    deepseek_tokens = int(round(raw_tokens * 0.92))
+
+    return {
+        "estimated_tokens": gpt4o_tokens,
+        "gpt4o_tokens": gpt4o_tokens,
+        "claude_tokens": claude_tokens,
+        "gemini_tokens": gemini_tokens,
+        "deepseek_tokens": deepseek_tokens,
+        "characters": characters,
+        "lines": lines_count,
+        "words": word_count,
+        "chinese_chars": chinese_count,
+        "punctuation_chars": punctuation_count,
+        "context_usage": {
+            "gpt128k": round((gpt4o_tokens / 128000.0) * 100, 2),
+            "claude200k": round((claudeTokens := claude_tokens) / 200000.0 * 100, 2),
+            "gemini1m": round((gemini_tokens / 1000000.0) * 100, 2),
+            "deepseek128k": round((deepseek_tokens / 128000.0) * 100, 2)
+        }
+    }
+
+def estimate_tokens(text: str) -> int:
+    """Accurate token count estimation."""
+    return estimate_tokens_detailed(text)["estimated_tokens"]
+
+def is_safe_relative_path(path_str: str) -> bool:
+    try:
+        normalize_ai_path(path_str)
+        return True
+    except Exception:
+        return False
 
 def normalize_ai_path(raw_path: str) -> str:
-    if not raw_path or not isinstance(raw_path, str):
-        raise SecurityError("文件路径不能为空")
-    path = re.sub(r'[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\uFEFF]', '', raw_path).strip()
-    decoded = path
+    """
+    Robust Path Normalizer:
+    1. Strips dangerous zero-width, bidi, and control characters
+    2. URL decodes traversal sequences (%2e%2e, %2f, %5c)
+    3. Handles leading `./`, `.\`, `/`, `\`
+    4. Trims quotes, markdown bold, backticks, asterisks, brackets
+    5. Rejects absolute paths (C:, //, \\), Zip Slip ('..'), and Windows reserved devices
+    """
+    if not raw_path:
+        raise ValueError("文件路径不能为空")
+
+    # Strip zero-width, bidi, and control characters
+    clean = re.sub(r'[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\uFEFF]', '', str(raw_path)).strip()
+
+    # Iterative URL decode (up to 3 passes)
     for _ in range(3):
-        if re.search(r'%[0-9a-fA-F]{2}', decoded):
+        if '%' in clean:
             try:
-                nxt = urllib.parse.unquote(decoded)
-                if nxt == decoded:
+                nxt = urllib.parse.unquote(clean)
+                if nxt == clean:
                     break
-                decoded = nxt
-            except:
+                clean = nxt
+            except Exception:
                 break
         else:
             break
-    path = decoded
-    path = path.replace('\\', '/').strip()
-    path = re.sub(r'^[`"\'*\s#]+|[`"\'*\s#]+$', '', path)
-    if not path:
-        raise SecurityError(f"非法空文件路径: {raw_path}")
-    path = re.sub(r'^/+', '', path)
-    if re.match(r'^[A-Za-z]:', path) or path.startswith('//') or path.startswith('\\\\'):
-        raise SecurityError(f"禁止绝对路径或网络路径: {raw_path}")
-    parts = [p for p in path.split('/') if p and p != '.']
+
+    # Strip markdown symbols, backticks, quotes, brackets
+    clean = clean.replace('\\', '/')
+    clean = re.sub(r'^[`"\'*#\[\(\s]+|[`"\'*#\]\)\s]+$', '', clean).strip()
+
+    if not clean or '\0' in clean:
+        raise ValueError(f"非法空文件路径: {raw_path!r}")
+
+    # Remove leading slashes and relative `./` prefixes
+    clean = clean.lstrip('/')
+    while clean.startswith('./'):
+        clean = clean[2:].lstrip('/')
+
+    if not clean:
+        raise ValueError(f"解析后路径为空: {raw_path!r}")
+
+    # Disallow Windows drive letters (C:) or UNC network shares
+    if re.match(r'^[A-Za-z]:', clean) or clean.startswith('//') or clean.startswith('\\\\'):
+        raise ValueError(f"必须使用仓库相对路径，禁止绝对/网络路径: {raw_path!r}")
+
+    raw_parts = clean.split('/')
+    parts: List[str] = []
+
+    for p in raw_parts:
+        p_clean = p.strip()
+        if not p_clean or p_clean == '.':
+            continue
+        if p_clean == '..' or p_clean.lower() == '%2e%2e' or '..' in p_clean:
+            raise ValueError(f"不允许路径穿越 (Zip Slip): {raw_path!r}")
+        parts.append(p_clean)
+
+    if not parts:
+        raise ValueError(f"路径无效: {raw_path!r}")
+
+    # Check Windows reserved names
     for part in parts:
-        if part == '..' or part.lower() == '%2e%2e' or '..' in part:
-            raise SecurityError(f"检测到路径穿越 (Zip Slip): {raw_path}")
         base = part.split('.')[0].upper()
         if base in WINDOWS_RESERVED_NAMES:
-            raise SecurityError(f"禁止系统保留设备名: {part} ({raw_path})")
-    return '/'.join(parts)
+            raise ValueError(f"禁止使用 Windows 保留设备名: {part} ({raw_path})")
 
-def is_safe_relative_path(path: str) -> bool:
-    try:
-        normalize_ai_path(path)
-        return True
-    except SecurityError:
-        return False
+    return '/'.join(parts)
 
 def is_sensitive_path(rel_path: str) -> bool:
     try:
         norm = normalize_ai_path(rel_path)
         parts = norm.split('/')
-        if any(p in SENSITIVE_DIR_NAMES for p in parts):
+        if any(p.lower() in SENSITIVE_DIR_NAMES for p in parts):
             return True
-        fname = parts[-1].lower()
-        if fname in SENSITIVE_FILE_NAMES:
+        name = parts[-1].lower()
+        if name in SENSITIVE_FILE_NAMES or name.startswith('.env.'):
             return True
-        if (fname.startswith('.env') or
-            fname.endswith(('.pem', '.key', '.pfx', '.p12')) or
-            'id_rsa' in fname or 'id_ed25519' in fname or
-            'service_account' in fname or 'service-account' in fname):
+        if name.endswith(('.pem', '.key', '.pfx', '.p12')) or 'id_rsa' in name or 'id_ed25519' in name:
             return True
         return False
-    except:
+    except Exception:
         return True
 
-def is_text_file(filename: str, sample_bytes: Optional[bytes] = None) -> bool:
-    name = os.path.basename(filename)
-    ext = os.path.splitext(name)[1].lower()
-    if name in TEXT_FILENAMES or ext in TEXT_EXTENSIONS:
-        return True
-    if sample_bytes is None:
-        return False
-    if b'\x00' in sample_bytes:
-        return False
-    try:
-        sample_bytes.decode('utf-8')
-        return True
-    except UnicodeDecodeError:
-        try:
-            sample_bytes.decode('gb18030')
-            return True
-        except:
-            return False
-
-def estimate_tokens(text: str) -> int:
-    return len(text) // 4 + 1
-
-def human_size(size: int) -> str:
-    if size < 1024:
-        return f"{size} B"
-    for unit in ('KB', 'MB', 'GB', 'TB'):
-        size /= 1024.0
-        if size < 1024:
-            return f"{size:.1f} {unit}"
-    return f"{size:.1f} PB"
-
-def safe_extract_zip(zip_path: str, target_dir: str, config: Optional[ZipSecurityConfig] = None) -> Tuple[str, List[str]]:
+def safe_extract_zip(zip_path: str, extract_to: str, config: Optional[ZipSecurityConfig] = None) -> Tuple[str, List[str]]:
+    """Safely extracts a zip file protecting against Zip Slip, Zip Bomb, and symlink exploits."""
     if config is None:
         config = ZipSecurityConfig()
-    if os.path.getsize(zip_path) > config.max_zip_bytes:
-        raise SecurityError(f"ZIP体积 {human_size(os.path.getsize(zip_path))} 超过限制 {human_size(config.max_zip_bytes)}")
-    extracted_files = []
+
+    if not os.path.isfile(zip_path):
+        raise FileNotFoundError(f"找不到 ZIP 文件: {zip_path}")
+
+    file_size = os.path.getsize(zip_path)
+    if file_size > config.max_zip_bytes:
+        raise SecurityError(f"ZIP 文件大小 ({human_size(file_size)}) 超出安全限制 ({human_size(config.max_zip_bytes)})")
+
+    os.makedirs(extract_to, exist_ok=True)
+    extracted_files: List[str] = []
+    total_uncompressed_bytes = 0
+
     with zipfile.ZipFile(zip_path, 'r') as zf:
-        members = zf.infolist()
-        if len(members) > config.max_members:
-            raise SecurityError(f"条目数 {len(members)} 超过上限 {config.max_members}")
-        total_uncompressed = 0
-        for m in members:
-            if m.is_dir():
-                continue
-            if m.external_attr & 0xF000 == 0xA000:
-                raise SecurityError(f"符号链接被拦截: {m.filename}")
-            norm = normalize_ai_path(m.filename)
-            if m.file_size > config.max_single_file_bytes:
-                raise SecurityError(f"单文件过大: {m.filename} ({human_size(m.file_size)})")
-            total_uncompressed += m.file_size
-            if total_uncompressed > config.max_uncompressed_bytes:
-                raise SecurityError(f"解压总量 {human_size(total_uncompressed)} 超过上限 {human_size(config.max_uncompressed_bytes)}")
-            target_path = os.path.join(target_dir, norm)
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            with open(target_path, 'wb') as f:
-                f.write(zf.read(m))
-            extracted_files.append(norm)
-    return target_dir, extracted_files
+        infolist = zf.infolist()
+        if len(infolist) > config.max_members:
+            raise SecurityError(f"ZIP 包含文件过多 ({len(infolist)} 个)，超出限制 ({config.max_members})")
 
-def get_file_language(filename: str) -> str:
-    ext = os.path.splitext(filename)[1].lower()
-    mapping = {
-        '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
-        '.java': 'java', '.c': 'c', '.cpp': 'cpp', '.cs': 'csharp',
-        '.go': 'go', '.rs': 'rust', '.php': 'php', '.rb': 'ruby',
-        '.sh': 'bash', '.bat': 'batch', '.ps1': 'powershell',
-        '.html': 'html', '.css': 'css', '.scss': 'scss', '.json': 'json',
-        '.yaml': 'yaml', '.yml': 'yaml', '.xml': 'xml', '.sql': 'sql',
-        '.md': 'markdown', '.txt': 'text'
-    }
-    return mapping.get(ext, 'text')
+        # First pass check: sizes and Zip Slip paths
+        for info in infolist:
+            total_uncompressed_bytes += info.file_size
+            if total_uncompressed_bytes > config.max_uncompressed_bytes:
+                raise SecurityError(f"ZIP 解压总体积超出限制 ({human_size(config.max_uncompressed_bytes)})")
+            if info.file_size > config.max_single_file_bytes:
+                raise SecurityError(f"单文件解压大小超出限制: {info.filename} ({human_size(info.file_size)})")
 
-def scan_and_format_repo(directory: str, base64_binaries: bool = False, exclude_patterns: List[str] = None) -> Tuple[str, List[Dict]]:
-    exclude_patterns = exclude_patterns or []
-    files_info = []
-    txt_parts = []
-    for root, dirs, files in os.walk(directory):
-        for f in files:
-            rel = os.path.relpath(os.path.join(root, f), directory).replace('\\', '/')
-            if any(re.search(p, rel) for p in exclude_patterns):
+            # Check symlinks (Unix external attr & 0o120000)
+            if (info.external_attr >> 16) & 0o120000 == 0o120000:
+                raise SecurityError(f"发现非法符号链接 (Symlink): {info.filename}")
+
+            # Path normalization check
+            norm_name = info.filename.replace('\\', '/')
+            if norm_name.startswith('/') or '..' in norm_name.split('/'):
+                raise SecurityError(f"发现 Zip Slip 路径穿越企图: {info.filename}")
+
+        # Extract files
+        target_base = os.path.abspath(extract_to)
+        for info in infolist:
+            norm_rel = info.filename.replace('\\', '/').lstrip('/')
+            dest_path = os.path.abspath(os.path.join(target_base, norm_rel))
+
+            if not dest_path.startswith(target_base + os.sep) and dest_path != target_base:
+                raise SecurityError(f"Zip Slip 目标逃逸: {info.filename}")
+
+            if info.is_dir():
+                os.makedirs(dest_path, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                with zf.open(info) as src, open(dest_path, 'wb') as dst:
+                    while chunk := src.read(65536):
+                        dst.write(chunk)
+                extracted_files.append(norm_rel)
+
+    # Detect if single root folder wrapper exists (e.g. repo-main/)
+    entries = [e for e in os.listdir(target_base) if not e.startswith('.')]
+    if len(entries) == 1:
+        single_dir = os.path.join(target_base, entries[0])
+        if os.path.isdir(single_dir):
+            return single_dir, extracted_files
+
+    return target_base, extracted_files
+
+def generate_ascii_tree(root_dir: str, exclude_patterns: Optional[List[str]] = None) -> str:
+    """Generates a clean ASCII tree directory structure."""
+    if exclude_patterns is None:
+        exclude_patterns = []
+
+    lines = [f"{os.path.basename(os.path.abspath(root_dir))}/"]
+
+    def walk(current_dir: str, prefix: str = ""):
+        try:
+            items = sorted(os.listdir(current_dir))
+        except Exception:
+            return
+
+        filtered = []
+        for item in items:
+            if item in {'.git', '.svn', '.hg', 'node_modules', '__pycache__', '.venv', 'venv', '.next', 'dist', 'build'}:
                 continue
-            full = os.path.join(root, f)
-            size = os.path.getsize(full)
-            with open(full, 'rb') as fp:
-                data = fp.read()
-            is_text = is_text_file(f, data[:8192])
-            sha256 = hashlib.sha256(data).hexdigest()
-            info = {'path': rel, 'size': size, 'is_text': is_text, 'sha256': sha256, 'lines': 0}
+            filtered.append(item)
+
+        for index, item in enumerate(filtered):
+            is_last = (index == len(filtered) - 1)
+            pointer = "└── " if is_last else "├── "
+            full_path = os.path.join(current_dir, item)
+
+            if os.path.isdir(full_path):
+                lines.append(f"{prefix}{pointer}{item}/")
+                new_prefix = prefix + ("    " if is_last else "│   ")
+                walk(full_path, new_prefix)
+            else:
+                lines.append(f"{prefix}{pointer}{item}")
+
+    walk(root_dir)
+    return '\n'.join(lines)
+
+def scan_and_format_repo(
+    root_dir: str,
+    base64_binaries: bool = False,
+    exclude_patterns: Optional[List[str]] = None
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """Scans repository folder and generates unified TXT content for AI context."""
+    files_info: List[Dict[str, Any]] = []
+    txt_parts: List[str] = []
+
+    txt_parts.append("================================================================================")
+    txt_parts.append("ZIPIFY REPOSITORY CONTEXT EXPORT")
+    txt_parts.append("================================================================================\n")
+    txt_parts.append("DIRECTORY STRUCTURE:")
+    txt_parts.append(generate_ascii_tree(root_dir, exclude_patterns))
+    txt_parts.append("\n================================================================================")
+    txt_parts.append("REPOSITORY SOURCE CODE FILES")
+    txt_parts.append("================================================================================\n")
+
+    root_abs = os.path.abspath(root_dir)
+
+    for dirpath, dirnames, filenames in os.walk(root_abs):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in {'.git', '.svn', 'node_modules', '__pycache__', '.venv', 'venv', 'dist', 'build', '.next'}
+        ]
+
+        for fname in sorted(filenames):
+            full_path = os.path.join(dirpath, fname)
+            rel_path = os.path.relpath(full_path, root_abs).replace('\\', '/')
+
+            is_text = is_text_file(fname)
+            file_size = os.path.getsize(full_path)
+
+            file_record: Dict[str, Any] = {
+                "path": rel_path,
+                "size": file_size,
+                "is_text": is_text,
+                "lines": 0
+            }
+
             if is_text:
                 try:
-                    content = data.decode('utf-8', errors='replace')
-                except:
-                    content = data.decode('gb18030', errors='replace')
-                info['lines'] = len(content.splitlines())
-                txt_parts.append(f"### FILE: {rel}")
-                txt_parts.append(f"```{get_file_language(rel)}")
-                txt_parts.append(content)
-                txt_parts.append("```\n")
-            else:
-                if base64_binaries:
-                    b64 = base64.b64encode(data).decode()
-                    txt_parts.append(f"### FILE: {rel} [BASE64_BINARY]")
-                    txt_parts.append("```base64")
-                    txt_parts.append(b64)
+                    with open(full_path, 'r', encoding='utf-8', errors='replace') as fp:
+                        content = fp.read()
+                    lines_count = len(content.splitlines())
+                    file_record["lines"] = lines_count
+
+                    _, ext = os.path.splitext(fname)
+                    lang = ext.lstrip('.').lower() or "text"
+
+                    txt_parts.append(f"### FILE: {rel_path}")
+                    txt_parts.append(f"```{lang}")
+                    txt_parts.append(content)
                     txt_parts.append("```\n")
-                else:
-                    txt_parts.append(f"### FILE: {rel} [BINARY FILE: {human_size(size)}, SHA-256: {sha256}]\n")
-            files_info.append(info)
-    return "\n".join(txt_parts), files_info
+                except Exception as e:
+                    txt_parts.append(f"### FILE: {rel_path} (Error reading: {e})\n")
+            elif base64_binaries and file_size <= 2 * 1024 * 1024:
+                try:
+                    with open(full_path, 'rb') as fp:
+                        b64_data = base64.b64encode(fp.read()).decode('ascii')
+                    txt_parts.append(f"### FILE: {rel_path} [BASE64_BINARY]")
+                    txt_parts.append("```base64")
+                    txt_parts.append(b64_data)
+                    txt_parts.append("```\n")
+                except Exception:
+                    pass
 
-def generate_ascii_tree(directory: str, exclude_patterns: List[str] = None) -> str:
-    exclude_patterns = exclude_patterns or []
-    lines = []
-    root_name = os.path.basename(directory) or 'repo'
-    lines.append(f"{root_name}/")
-    def walk(dir_path, prefix):
-        items = sorted(os.listdir(dir_path))
-        items = [i for i in items if not any(re.search(p, i) for p in exclude_patterns)]
-        for idx, name in enumerate(items):
-            full = os.path.join(dir_path, name)
-            is_last = (idx == len(items) - 1)
-            connector = "└── " if is_last else "├── "
-            lines.append(f"{prefix}{connector}{name}{'/' if os.path.isdir(full) else ''}")
-            if os.path.isdir(full):
-                next_prefix = prefix + ("    " if is_last else "│   ")
-                walk(full, next_prefix)
-    walk(directory, "")
-    return "\n".join(lines)
+            files_info.append(file_record)
 
-def assemble_prompt(prompt_template: str, user_requirement: str, repo_txt: str) -> str:
-    if user_requirement:
-        prompt_template = re.sub(r'\[DESCRIBE YOUR REQUIREMENT HERE\]', user_requirement, prompt_template, flags=re.I)
-        prompt_template = re.sub(r'\[在此详细描述您的业务需求.*?\]', user_requirement, prompt_template, flags=re.I)
-    return prompt_template + "\n\n" + repo_txt
+    full_txt = '\n'.join(txt_parts)
+    return full_txt, files_info
 
-def parse_ai_output(markdown_text: str) -> Dict[str, str]:
-    """
-    解析 AI 输出中的文件块，返回字典（键为文件路径，值为文件内容）。
-    如果某个路径非法，跳过该块而不中断整体解析。
-    """
-    # 正则：匹配 ### FILE: 路径 \n ```语言 \n 内容 ```
-    # 注意使用非贪婪，并允许各种空白
-    blocks = re.findall(r'###\s*FILE:\s*(.+?)\s*\n\s*```(?:\w+)?\s*\n(.*?)```', markdown_text, re.DOTALL)
-    files = {}
-    for path, content in blocks:
-        try:
-            path = normalize_ai_path(path.strip())
-            files[path] = content.strip()
-        except SecurityError:
-            # 跳过非法路径，继续解析其他块
+def parse_ai_blocks(raw_text: str) -> Dict[str, str]:
+    if len(raw_text.encode('utf-8')) > MAX_AI_INPUT_BYTES:
+        raise ValueError(f"AI 输入超过 {human_size(MAX_AI_INPUT_BYTES)}")
+
+    lines = raw_text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    marker_patterns = [
+        re.compile(r'^\s*(?:#{1,6}\s*)?FILE\s*:\s*[`"\'*]?(.+?)[`"\'*]?\s*$', re.IGNORECASE),
+        re.compile(r'^\s*\*\*(?:FILE|File|FilePath)\s*:\s*\*\*\s*[`"\'*]?(.+?)[`"\'*]?\s*$', re.IGNORECASE),
+        re.compile(r'^\s*\*\*(?:FILE|File|FilePath)\s*:\s*[`"\'*]?(.+?)[`"\'*]?\*\*\s*$', re.IGNORECASE),
+        re.compile(r'^\s*(?://|/\*|<!--|#)\s*FILE\s*:\s*[`"\'*]?(.+?)[`"\'*]?(?:\s*\*\/|\s*-->)?\s*$', re.IGNORECASE),
+        re.compile(r'^\s*\[\s*FILE(?:\s*:)?\s*[`"\'*]?(.+?)[`"\'*]?\s*\]\s*$', re.IGNORECASE),
+        re.compile(r'^\s*(?:FilePath|File Path|Target File)\s*:\s*[`"\'*]?(.+?)[`"\'*]?\s*$', re.IGNORECASE),
+    ]
+
+    inline_fence = re.compile(r'^\s*```(?:[A-Za-z0-9_+.#-]+)?(?:\s+|:)(?:file=|path=)?["\'`]?([A-Za-z0-9_./\\-]+)["\'`]?\s*$', re.IGNORECASE)
+    fence = re.compile(r'^\s*```(?:[A-Za-z0-9_+.#-]+)?\s*$')
+    close = re.compile(r'^\s*```\s*$')
+
+    blocks: List[Tuple[str, str]] = []
+    current: Optional[str] = None
+    buffer: List[str] = []
+    in_block = False
+
+    def flush():
+        nonlocal current, buffer, in_block
+        if current is not None:
+            content = '\n'.join(buffer)
+            if len(content.encode('utf-8')) > MAX_AI_SINGLE_OUTPUT_BYTES:
+                raise ValueError(f"AI 单文件过大: {current}")
+            blocks.append((current, content))
+        current = None
+        buffer = []
+        in_block = False
+
+    for line in lines:
+        if not in_block:
+            # Inline fence check
+            m_inline = inline_fence.match(line)
+            if m_inline and '.' in m_inline.group(1):
+                try:
+                    current = normalize_ai_path(m_inline.group(1))
+                    in_block = True
+                    continue
+                except Exception:
+                    pass
+
+            # Header marker check
+            matched_candidate = None
+            for p in marker_patterns:
+                m = p.match(line)
+                if m and m.group(1):
+                    cand = m.group(1).strip()
+                    if cand and not cand.startswith('http'):
+                        try:
+                            matched_candidate = normalize_ai_path(cand)
+                            break
+                        except Exception:
+                            pass
+
+            if matched_candidate:
+                current = matched_candidate
+                continue
+
+            if current is not None:
+                if fence.match(line):
+                    in_block = True
+                    continue
+                continue
             continue
-    return files
 
-def parse_ai_blocks(markdown_text: str) -> List[Dict[str, str]]:
-    """
-    解析 AI 输出中的文件块，返回列表形式。
-    每个元素为 {'path': 'relative/path', 'content': 'file content'}
-    如果某个路径非法，跳过该块。
-    """
-    blocks = re.findall(r'###\s*FILE:\s*(.+?)\s*\n\s*```(?:\w+)?\s*\n(.*?)```', markdown_text, re.DOTALL)
-    result = []
+        if close.match(line):
+            flush()
+        else:
+            buffer.append(line)
+
+    # Auto-close trailing unclosed fence if present
+    if in_block and current is not None:
+        flush()
+
+    if not blocks:
+        raise ValueError("未识别到任何有效文件块。格式: ### FILE: path\\n```lang\\ncode\\n```")
+
+    merged: Dict[str, str] = {}
     for path, content in blocks:
-        try:
-            path = normalize_ai_path(path.strip())
-            result.append({'path': path, 'content': content.strip()})
-        except SecurityError:
-            continue
-    return result
+        if path in merged:
+            merged[path] = merged[path] + '\n' + content
+        else:
+            merged[path] = content
 
-def create_patch_zip(files_dict: Dict[str, str], output_path: str) -> None:
-    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for rel_path, content in files_dict.items():
-            zf.writestr(rel_path, content)
+    return merged
 
-def write_parsed_files_to_dir(files_dict: Dict[str, str], target_dir: str) -> None:
-    for rel_path, content in files_dict.items():
+def parse_ai_output(raw_text: str) -> Dict[str, Any]:
+    """Top-level wrapper returning structured result matching web/desktop consumers."""
+    files = parse_ai_blocks(raw_text)
+    return {
+        "files": files,
+        "total_files": len(files),
+        "total_chars": sum(len(c) for c in files.values())
+    }
+
+def create_patch_zip(files_map: Dict[str, str], output_zip_path: str) -> str:
+    """Creates a clean zip archive containing only the parsed files."""
+    os.makedirs(os.path.dirname(os.path.abspath(output_zip_path)), exist_ok=True)
+    with zipfile.ZipFile(output_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for rel_path, content in files_map.items():
+            norm = normalize_ai_path(rel_path)
+            zf.writestr(norm, content.encode('utf-8'))
+    return output_zip_path
+
+def write_parsed_files_to_dir(files_map: Dict[str, str], target_dir: str) -> int:
+    """
+    Safely writes parsed files back to target local directory.
+    Smart path collision prevention: if target_dir ends with 'my-project' and files are 'my-project/src/...',
+    it will strip the redundant prefix so it doesn't double-nest.
+    """
+    base_abs = os.path.abspath(target_dir)
+    os.makedirs(base_abs, exist_ok=True)
+    target_folder_name = os.path.basename(base_abs)
+
+    count = 0
+    for rel_path, content in files_map.items():
         norm = normalize_ai_path(rel_path)
-        target_path = os.path.join(target_dir, norm)
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with open(target_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        
+        # Smart folder prefix check
+        parts = norm.split('/')
+        if len(parts) > 1 and parts[0].lower() == target_folder_name.lower():
+            resolved_rel = '/'.join(parts[1:])
+        else:
+            resolved_rel = norm
+
+        dest = os.path.abspath(os.path.join(base_abs, resolved_rel))
+        if not dest.startswith(base_abs + os.sep) and dest != base_abs:
+            raise SecurityError(f"越界写目标拦截: {rel_path}")
+        
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, 'w', encoding='utf-8') as fp:
+            fp.write(content)
+        count += 1
+
+    return count
