@@ -10,7 +10,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Release-v3.1.0-6366f1?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Web-38bdf8?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Web%20%7C%20CLI-38bdf8?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square" alt="Python" />
   <img src="https://img.shields.io/badge/React-18%20%2B%20TypeScript-blueviolet?style=flat-square" alt="React" />
   <img src="https://img.shields.io/badge/Security-ZipBomb%20%26%20ZipSlip%20Protected-emerald?style=flat-square" alt="Security" />
@@ -21,58 +21,63 @@
 
 ## 🌟 项目简介
 
-在将完整 GitHub 仓库或工程源码输入给大语言模型（如 Claude 3.5 Sonnet、GPT-4o、Gemini 1.5 Pro/Flash、DeepSeek-V3 等）时，开发者常面临 **“多文件上传琐碎”、“格式排版紊乱”、“Token 消耗不可控”** 以及 **“AI 返回修改代码后难以批量写回本地”** 的痛点。
+在将完整工程源码提供给主流大语言模型（如 Claude 3.5 Sonnet、GPT-4o、Gemini 1.5 Pro/Flash、DeepSeek-V3/R1 等）进行跨文件重构与开发时，开发者常面临 **“多文件上传琐碎”、“文件层级与排版混乱”、“Token 预算不可预估”** 以及 **“AI 返回修改后难以批量合并回本地项目”** 的核心痛点。
 
-**ZipToTxt** 提供了完整的双向闭环解决方案：
-1. **正向导出（ZIP → TXT）**：将任意仓库 ZIP 压缩包一键解析为包含**完整目录树、多语言代码正文、二进制文件哈希/Base64** 的结构化纯文本，自动生成适配各主流 AI 的优化 Prompt。
-2. **反向打补丁（AI Markdown → Patch ZIP）**：智能解析 AI 返回的标准 Markdown 代码块，实时预览 Diff 差异对比，一键将改动文件复原为严格目录树并打包为 `patch.zip`。
+**ZipToTxt** 提供了完整的全链路双向开发闭环：
+1. **正向导出（ZIP → 结构化 TXT）**：将任意仓库 ZIP 压缩包一键解析为包含 **ASCII 目录树、多语言代码正文、二进制哈希/Base64** 的结构化上下文，自动装配多模型 Token 预算及系统提示词。
+2. **反向打补丁（AI Markdown → Patch ZIP）**：智能提取 AI 返回的标准 Markdown 代码块，支持自动修复截断代码围栏，提供可视化行级 Diff 审查与敏感凭证隔离，一键打包为可直接解压覆盖的 `patch.zip`。
 
-项目同时提供 **高性能 Web 端工作台** 与 **原生 Windows 单文件免安装客户端（`ZipToTxt.exe`）**。
+项目同时提供 **高性能 Web 端工作台** 与 **Windows 原生单文件客户端（`ZipToTxt.exe`）**。
+
+---
+
+## 🔄 7 步端到端开发闭环
+
+```text
+[1. 选择项目] ──> [2. 分析项目] ──> [3. 生成上下文] ──> [4. 交付 AI 交互]
+   (ZIP 拖入)     (目录树/Token)    (Prompt + 源码)     (大模型编程)
+                                                            │
+[7. 导出 Patch] <── [6. 审查 Diff] <── [5. 导入结果] <──────┘
+ (生成补丁 ZIP)     (行级差异比对)     (粘贴 Markdown)
+```
 
 ---
 
 ## ✨ 核心特性
 
 ### 1. 📦 正向导出：仓库 ZIP → 结构化 TXT
-- **一键拖拽与极速解析**：支持直接拖拽任意 `.zip` 压缩包（自动跳过 GitHub 单一根目录前缀）。
-- **智能工程目录树**：自动生成 ASCII 树状结构图，清晰展现项目层级。
-- **智能文本与二进制识别**：内置 60+ 种常用编程语言扩展名与配置白名单，精准识别 UTF-8/GBK 文本文件。
-- **二进制文件处理机制**：默认记录路径、体积及 SHA-256 校验和；支持一键开启 **Base64 完整嵌入**。
-- **Token 智能估算与统计**：实时统计文件总数、代码总行数、预估 LLM Token 开销（4 字符/Token 模型）。
-- **Prompt 自动化装配**：预置精准指令模板，约束大模型按统一规范输出改动文件，杜绝伪代码或截断代码。
+- **拖拽解析与根目录自适应**：支持直接拖拽任意 `.zip` 文件，自动识别并跳过 GitHub 导出的单一根目录前缀。
+- **ASCII 项目结构树**：自动生成清晰的目录树图谱，帮助大模型建立完整全局文件索引。
+- **智能文本与二进制分流**：内置 60+ 种常用编程语言扩展名与配置白名单，精准识别 UTF-8/GBK 文本文件；二进制文件自动提取 SHA-256 校验和（支持一键开启 Base64 嵌入）。
+- **多模型 Token 预算测算**：实时测算并对比 GPT-4o、Claude 3.5 Sonnet、DeepSeek 及 Gemini 的 Token 开销与费用估算。
+- **系统提示词自动装配**：内置全库重构、零缺陷安全审计与截断续写等生产级 Prompt 模板。
 
 ### 2. 🧩 反向导入：AI Markdown → 补丁 ZIP
-- **全自动代码块解析**：精准提取形如 `### FILE: relative/path/to/file.ext` 的 Markdown 代码围栏。
-- **自动容错与闭合保护**：针对 AI 偶尔遗漏闭合 ```` ``` ```` 的边界情况提供自动修复机制。
-- **Monaco 智能代码编辑器**：提供语法高亮、迷你地图、多文件切换、只读保护与实时编辑。
-- **多维度改动对比（Diff）**：支持文件状态标记（新增/修改/敏感）、行数差异统计与变更核验。
-- **一键生成补丁归档**：只将 AI 变更的文件按原始目录结构精准打包为 `patch.zip`，避免全量覆盖污染。
+- **宽容代码块解析器**：精准提取形如 `### FILE: path/to/file.ext` 的代码块，支持兼容多种 AI 标头格式。
+- **截断代码自动修复**：当 AI 因上下文达到上限未闭合代码块时，自动闭合代码围栏并提供续写指令。
+- **行级 Diff 可视化审查**：直观展示新增 (`+`)、修改 (`~`) 和未变更状态，避免遗漏改动。
+- **精确补丁打包**：仅将变更文件按原工程目录结构打包为 `patch.zip`，杜绝未修改文件的无效覆盖。
 
-### 3. 🛡️ 工业级安全审计引擎
-- **ZIP 炸弹（Zip Bomb）主动拦截**：
-  - 限制最大压缩包体积（512 MB）、解压膨胀上限（1 GB）、最大条目数（15,000）及单文件上限（256 MB）。
-- **路径穿越（Zip Slip）防护**：
-  - 严格校验相对路径，拦截 `../`、`..\\`、绝对路径及 Windows 保留设备名称（`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`）。
-- **符号链接（Symlink Attack）拦截**：
-  - 拒绝一切软链接/硬链接引用，防止恶意逃逸读取宿主机敏感文件。
-- **敏感凭证过滤**：
-  - 自动检测并标记 `.git`、`.env*`、`id_rsa`、`keystore.jks`、`service-account.json` 等私钥与凭证文件。
+### 3. 🛡️ 工业级安全沙箱与防御机制
+- **Zip Slip 路径逃逸防御**：严格阻断 `..`、`%2e%2e`、绝对路径 (`/etc/passwd`, `C:\`) 及 UNC 网络共享路径 (`\\server\share`)。
+- **Windows 保留设备名过滤**：自动过滤 `CON`、`PRN`、`AUX`、`NUL`、`COM1-9`、`LPT1-9` 及相关后缀，防止 Windows 文件系统锁死。
+- **Unicode Trojan Source 清洗**：剥离双向文本覆盖字符 (`\u202A-\u202E`) 与零宽隐形字符。
+- **敏感凭证安全隔离**：默认识别并隔离 `.env`、`id_rsa`、`.pem`、云凭据与 `.git` 内部对象，防止意外打包外泄。
+- **100% 浏览器本地私密沙箱**：纯客户端前端运算，无任何源码或代码上传至外部服务器。
 
 ---
 
-## 🖥️ 两种使用方式
+## 🖥️ 两种使用形态
 
-### 方式 A：Web 工作台（在线 / 本地开发）
-基于 **React 18 + TypeScript + Tailwind CSS + Monaco Editor + WebAssembly JSZip** 构建。
-- **纯前端客户端计算**：所有 ZIP 解压、文本解析与补丁打包均在浏览器本地内存运行，**源码绝不上传任何第三方服务器**，隐私 100% 安全。
-- **即开即用**：支持跨平台现代浏览器（Chrome、Edge、Safari、Firefox）。
+### 方式 A：Web 工作台（在线 / 本地）
+基于 **React 18 + TypeScript + Tailwind CSS + Monaco Editor + JSZip** 构建。
 
 #### 本地启动 Web 端
 ```bash
 # 1. 安装依赖
 npm install
 
-# 2. 启动本地开发服务
+# 2. 启动开发服务器
 npm run dev
 
 # 3. 生产打包
@@ -82,26 +87,23 @@ npm run build
 ---
 
 ### 方式 B：Windows 原生桌面客户端（`ZipToTxt.exe`）
-基于 **Python 3.10+ / PySide6 (Qt6)** 构建，独立单文件分发，免安装直接运行。
-- **现代化深色主题与高分屏优化**：基于 Qt6 硬件加速与 Slate Dark 专业暗色调，4K / 150% / 200% 高分屏无损矢量缩放。
-- **Windows 原生拖拽与多任务线程**：基于 Qt 内核事件循环原生支持 `.zip`、`.txt`、`.md` 拖拽载入，后台 Worker 线程无卡顿处理大型代码仓库。
-- **任务栏与高清图标适配**：注册原生 Windows `AppUserModelID`，多分辨率 `app.ico` 完美适配资源管理器与任务栏。
+基于 **Python 3.10+ / PySide6 (Qt6)** 构建，支持浅色/深色主题切换、多线程文件处理与原生拖拽。
 
 #### 客户端源码运行
 ```bash
 # 1. 安装依赖
 pip install -r requirements.txt
 
-# 2. 启动桌面端
+# 2. 启动桌面客户端
 python main.py
 ```
 
-#### 本地打包单文件 EXE
+#### 本地编译单文件 EXE
 ```bash
-# 安装指定版本 PyInstaller
+# 1. 安装 PyInstaller
 pip install pyinstaller==6.22.2
 
-# 执行打包命令（自动打包图标与 PySide6 核心模块）
+# 2. 执行单文件打包命令
 pyinstaller --clean --noconfirm `
   --onefile `
   --windowed `
@@ -111,95 +113,114 @@ pyinstaller --clean --noconfirm `
   --add-data "app_icon.png;." `
   main.py
 ```
-打包产物位于 `dist/ZipToTxt.exe`。
+打包输出路径位于 `dist/ZipToTxt.exe`。
 
 ---
 
-## 🤖 AI 交互标准规范（Prompt 规范）
+## 🤖 推荐 AI 交互提示词规范
 
-为确保大模型能被本工具 100% 精准反向解析，请在提问时要求 AI 严格遵守如下输出格式：
+为确保大模型生成的代码可被 100% 精准识别并自动打补丁，建议使用以下标准输出格式：
 
 ### 推荐 Prompt 模板
 ```markdown
-我正在与你共享一个由工具导出的完整项目仓库上下文 TXT。
+我正在与你共享一个由 ZipToTxt 导出的完整项目仓库上下文 TXT。
 
 请帮我实现以下需求：
 [在此详细描述您的业务需求、Bug 修复或功能重构]
 
 【输出规范】：
-1. 保持项目现有架构与代码规范；
+1. 保持项目现有架构与目录规范；
 2. 仅输出你修改过或新创建的文件；
-3. 每个文件必须且仅能使用以下 Markdown 格式输出（禁止省略代码或使用 `...` 占位）：
+3. 禁止输出省略号（如 // ... 其余代码不变），必须输出完整可运行的文件代码；
+4. 每个文件前必须且仅能使用以下 Markdown 标头：
 
-### FILE: path/to/file.ext
+### FILE: relative/path/to/file.ext
 ```language
-// 完整的、可直接运行的文件代码
-```
-```
-
-### AI 输出示例
-```markdown
-已根据需求修改了后端入口并新增了工具类：
-
-### FILE: src/main.py
-```python
-import os
-from utils.helper import format_message
-
-def run():
-    print(format_message("Service started successfully!"))
-
-if __name__ == "__main__":
-    run()
-```
-
-### FILE: src/utils/helper.py
-```python
-def format_message(msg: str) -> str:
-    return f"[ZipToTxt] {msg}"
+// 完整的文件内容
 ```
 ```
 
 ---
 
-## 🚀 GitHub Actions 持续集成与发布
+## 📦 如何发布新版本与自动打包 Release (GitHub Actions)
 
-本项目自带完善的 GitHub CI/CD 工作流（位于 `.github/workflows/build.yml`）：
+项目配置了完整的自动化构建与发布工作流（位于 `.github/workflows/build.yml`）。
 
-1. **自动构建**：
-   - 每当代码推送到 `main` 分支或提交 Pull Request 时，GitHub Actions 会自动在 Windows 虚拟机上打包生成最新的 `ZipToTxt.exe`。
-   - 可以在 GitHub 仓库的 **Actions → Artifacts** 中直接下载构建产物。
-2. **自动化 Release 发布**：
-   - 触发版本 Tag 推送（例如 `git tag v3.1.0 && git push origin v3.1.0`）；
-   - GitHub Actions 会自动创建 GitHub Release，并将 `ZipToTxt.exe` 作为 Release 附件供公开下载。
+### 为什么在 GitHub 创建 Release 后没有自动打包？
+通常是因为以下两个原因：
+1. **GitHub 仓库权限未开启写权限**：
+   - 进入你的 GitHub 仓库 → **Settings** → **Actions** → **General**。
+   - 向下滚动找到 **Workflow permissions**。
+   - 将默认的 *"Read repository contents permission"* 改选为 **"Read and write permissions"**，并点击 **Save**。
+2. **Tag 命名规则**：
+   - 之前的工作流仅匹配以 `v` 开头的标签（如 `v3.1.0`）。如果创建的标签为 `3.1.0`（未带 `v`），则无法触发构建。
+   - 当前工作流已升级为**支持任意 Tag 格式**以及 **GitHub Release 发布事件（`release: published`）**。
+
+### 标准发布步骤
+
+#### 方式 1：通过 Git 命令行推送 Tag（推荐）
+```bash
+# 1. 确保所有修改已提交并推送到 main 分支
+git add .
+git commit -m "Release v3.1.0"
+git push origin main
+
+# 2. 打标签并推送到 GitHub
+git tag v3.1.0
+git push origin v3.1.0
+```
+推送后，GitHub Actions 会自动启动 Windows 虚拟机打包 `ZipToTxt.exe`，并在编译通过后自动创建/更新 Release 并挂载 EXE 下载附件。
+
+#### 方式 2：在 GitHub 网页端发布 Release
+1. 打开 GitHub 仓库页面，点击右侧的 **Releases** → **Draft a new release**。
+2. 点击 **Choose a tag**，输入版本号（例如 `v3.1.0`），选择 **Create new tag: v3.1.0 on publish**。
+3. 填写 Release 标题与版本描述。
+4. 点击 **Publish release**。
+5. 切换到 **Actions** 标签页即可看到正在自动构建的 `Build and Release Windows EXE` 任务。构建完成后，`ZipToTxt.exe` 会自动挂载到该 Release 的 Assets 列表中供所有人下载。
 
 ---
 
-## 📁 目录结构
+## 📁 项目目录结构
 
 ```text
 ├── .github/workflows/
 │   └── build.yml             # GitHub Actions 自动化构建与 Release 脚本
 ├── public/
-│   ├── app-icon.png          # 极简现代高清应用图标 (PNG)
+│   ├── app-icon.png          # 现代高清应用图标 (PNG)
 │   ├── app-icon.ico          # Windows 多分辨率系统图标 (ICO)
 │   └── favicon.ico           # Web 网页 Favicon
 ├── src/
-│   ├── assets/               # 矢量与图像资源
+│   ├── assets/               # 矢量图形与静态资源
 │   ├── components/
-│   │   ├── ExportPage.tsx    # 01 · 仓库转 TXT 导出工作台
-│   │   ├── ImportPage.tsx    # 02 · AI 补丁解析与 ZIP 生成工作台
-│   │   ├── SecurityAuditPage.tsx # 03 · 实时安全审计与敏感凭证扫描
-│   │   ├── HelpPage.tsx      # 04 · 使用说明与规范指南
+│   │   ├── convert/          # 项目转换子模块
+│   │   │   ├── ZipDropZone.tsx         # ZIP 拖拽上传与文件选择
+│   │   │   ├── ProjectStatsSummary.tsx # 项目核心指标概览与快捷导出
+│   │   │   ├── PromptComposerTab.tsx   # 提示词装配器与自定义注入
+│   │   │   ├── FileTreeViewerTab.tsx   # ASCII 树与文件检索表格
+│   │   │   ├── TokenBudgetTab.tsx      # 多模型 Token 预算测算卡片
+│   │   │   ├── FilePreviewModal.tsx    # 文件内容预览弹窗
+│   │   │   └── PromptEditorModal.tsx   # 提示词查看与编辑弹窗
+│   │   ├── Dashboard.tsx     # 控制台首页 (7步工作流与项目通道)
+│   │   ├── ConvertPage.tsx   # 01 · 仓库转 TXT 转换页
+│   │   ├── PatchPage.tsx     # 02 · AI 补丁解析与 Diff 审查页
+│   │   ├── DiffViewer.tsx    # 行级代码差异比对组件
+│   │   ├── SecurityAuditPage.tsx # 03 · 安全架构审计与沙箱测试页
+│   │   ├── HelpPage.tsx      # 04 · 开发指南与提示词库
 │   │   └── Sidebar.tsx       # 全局侧边栏导航组件
+│   ├── utils/
+│   │   ├── zipToTxt.ts       # Web 端 ZIP 解压、树生成与代码序列化
+│   │   ├── aiParser.ts       # 宽容 Markdown 解析器与代码块提取
+│   │   ├── security.ts       # Zip Slip 与敏感路径安全校验
+│   │   ├── tokenEstimator.ts # GPT/Claude/DeepSeek Token 估算器
+│   │   └── constants.ts      # 默认提示词模板与系统配额常量
 │   ├── types.ts              # 全局 TypeScript 接口定义
-│   ├── App.tsx               # Web 端主入口应用
+│   ├── App.tsx               # Web 端顶层应用组件
 │   └── main.tsx              # React DOM 渲染入口
 ├── core.py                   # Python 核心解析与安全审计引擎 (CLI/GUI 共用)
-├── main.py                   # Python PySide6 (Qt6) Windows 桌面端 GUI 应用程序
+├── main.py                   # Python PySide6 (Qt6) Windows 桌面端客户端
 ├── test_core.py              # Python 单元测试套件 (ZipSlip/ZipBomb/Parser 安全审计)
 ├── requirements.txt          # Python 依赖清单 (PySide6)
-├── package.json              # Node.js / React 依赖配置
+├── package.json              # Node.js / React 依赖与脚本配置
 └── README.md                 # 项目详细中英文技术文档
 ```
 
