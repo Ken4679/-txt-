@@ -7,7 +7,7 @@ import {
   ChevronUp,
   Copy,
 } from 'lucide-react';
-import { processZipFile } from '../utils/zipToTxt';
+import { processZipFile, processFolderFiles, DirectFileInput } from '../utils/zipToTxt';
 import {
   DEFAULT_PROMPTS,
   COMMON_IGNORE_FOLDERS,
@@ -41,6 +41,7 @@ export const ConvertPage: React.FC<ConvertPageProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [includeBinary, setIncludeBinary] = useState<boolean>(false);
   const [filterIgnoredFolders, setFilterIgnoredFolders] = useState<boolean>(true);
+  const [customIgnoreText, setCustomIgnoreText] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
   const [currentFileProcessing, setCurrentFileProcessing] = useState<string>('');
@@ -119,6 +120,78 @@ export const ConvertPage: React.FC<ConvertPageProps> = ({
     }
   };
 
+  const getCustomIgnorePatterns = () => {
+    return customIgnoreText
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean);
+  };
+
+  const executeProcessFolder = async (folderFiles: DirectFileInput[], rootName: string) => {
+    setIsProcessing(true);
+    setProgress(5);
+    onStatusChange(`正在解析工程文件夹: ${rootName} (${folderFiles.length} 个文件)...`, 10);
+
+    try {
+      const customPats = getCustomIgnorePatterns();
+      const result = await processFolderFiles(
+        folderFiles,
+        {
+          includeBinary,
+          filterIgnoredFolders,
+          ignoredFolderNames: COMMON_IGNORE_FOLDERS,
+          customIgnorePatterns: customPats,
+          onProgress: (current, total, currentName) => {
+            const pct = Math.min(95, Math.round((current / total) * 90) + 5);
+            setProgress(pct);
+            setCurrentFileProcessing(currentName);
+            onStatusChange(`扫描提取: ${currentName} (${current}/${total})`, pct);
+          },
+        },
+        rootName
+      );
+
+      setGeneratedTxt(result.txtContent);
+      setAsciiTree(result.asciiTree);
+      setFileEntries(result.entries);
+      setIgnoredCount(result.ignoredCount);
+
+      // Create a virtual selectedFile representation for UI
+      const totalByteSize = folderFiles.reduce((acc, f) => acc + f.file.size, 0);
+      const virtualFile = new File([], `${rootName}.zip`, { type: 'application/zip' });
+      Object.defineProperty(virtualFile, 'size', { value: totalByteSize });
+      setSelectedFile(virtualFile);
+
+      const detailedTokens = estimateTokensDetailed(result.txtContent);
+      setTokenStats(detailedTokens);
+
+      setProgress(100);
+      setIsProcessing(false);
+      onStatusChange(`成功解析文件夹 ${result.fileCount} 个源码文件`, 100);
+      onShowToast(`🎉 成功转换文件夹（${result.fileCount} 个文件，约 ${result.estimatedTokens.toLocaleString()} Token）`, 'success');
+
+      if (onProjectLoaded) {
+        onProjectLoaded({
+          name: rootName,
+          totalFiles: result.fileCount,
+          textFiles: result.textCount,
+          binaryFiles: result.binaryCount,
+          totalSize: totalByteSize,
+          totalLines: result.totalLines,
+          estimatedTokens: result.estimatedTokens,
+          asciiTree: result.asciiTree,
+          txtContent: result.txtContent,
+          entries: result.entries,
+        });
+      }
+    } catch (err: any) {
+      setIsProcessing(false);
+      setProgress(0);
+      onStatusChange('解析中断', 0);
+      onShowToast(err.message || '文件夹解析失败。', 'error');
+    }
+  };
+
   const executeProcessZip = async (file: File) => {
     setSelectedFile(file);
     setIsProcessing(true);
@@ -126,10 +199,12 @@ export const ConvertPage: React.FC<ConvertPageProps> = ({
     onStatusChange(`正在解析代码库归档: ${file.name}...`, 10);
 
     try {
+      const customPats = getCustomIgnorePatterns();
       const result = await processZipFile(file, {
         includeBinary,
         filterIgnoredFolders,
         ignoredFolderNames: COMMON_IGNORE_FOLDERS,
+        customIgnorePatterns: customPats,
         onProgress: (current, total, currentName) => {
           const pct = Math.min(95, Math.round((current / total) * 90) + 5);
           setProgress(pct);
@@ -234,9 +309,9 @@ export const ConvertPage: React.FC<ConvertPageProps> = ({
           <Archive className="w-4 h-4" />
           <span>流程步骤 01</span>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900 mt-1">项目代码转换 (ZIP → AI 上下文 TXT)</h1>
+        <h1 className="text-2xl font-bold text-slate-900 mt-1">项目代码转换 (ZIP / 文件夹 → AI 上下文 TXT)</h1>
         <p className="text-sm text-slate-500 mt-1">
-          将任意 ZIP 格式的工程代码库转化为适配 Claude、GPT-4o、DeepSeek、Gemini 等大模型的结构化 Markdown TXT 提示词上下文。
+          支持直接拖入 ZIP 压缩包或工程源码文件夹，转化为适配 Claude、GPT-4o、DeepSeek、Gemini 等大模型的结构化 Markdown TXT 提示词上下文。
         </p>
       </div>
 
@@ -245,6 +320,7 @@ export const ConvertPage: React.FC<ConvertPageProps> = ({
         <ZipDropZone
           isProcessing={isProcessing}
           onFileSelect={executeProcessZip}
+          onFolderSelect={executeProcessFolder}
           onShowToast={onShowToast}
         />
       )}
@@ -398,7 +474,7 @@ export const ConvertPage: React.FC<ConvertPageProps> = ({
                 onChange={e => setFilterIgnoredFolders(e.target.checked)}
                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
-              <span>自动过滤构建产物与依赖文件夹（node_modules, .git, .venv, dist, __pycache__ 等）</span>
+              <span>自动过滤构建产物与依赖文件夹（node_modules, .git, .venv, dist, .next, __pycache__ 等）</span>
             </label>
 
             <label className="flex items-center gap-2 cursor-pointer text-slate-700">
@@ -410,6 +486,19 @@ export const ConvertPage: React.FC<ConvertPageProps> = ({
               />
               <span>在导出的 TXT 中以 Base64 文本编码包含二进制文件（注意：会显著增加 Token 消耗）</span>
             </label>
+
+            <div className="pt-1">
+              <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                自定义额外忽略路径或文件名（每行一个，如 <code>*.log</code> 或 <code>temp/</code>）：
+              </label>
+              <textarea
+                value={customIgnoreText}
+                onChange={e => setCustomIgnoreText(e.target.value)}
+                placeholder="例如:&#10;test/fixtures&#10;.log&#10;mock_data.json"
+                rows={2}
+                className="w-full rounded-lg border border-slate-200 p-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+              />
+            </div>
           </div>
         )}
       </div>
@@ -433,3 +522,4 @@ export const ConvertPage: React.FC<ConvertPageProps> = ({
     </div>
   );
 };
+

@@ -11,12 +11,16 @@ import { DiffFile } from '../types';
 interface DiffViewerProps {
   diffFiles: DiffFile[];
   selectedFilePath?: string;
+  selectedPaths?: Set<string>;
+  onTogglePathSelect?: (path: string) => void;
   onSelectFile?: (path: string) => void;
 }
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({
   diffFiles,
   selectedFilePath,
+  selectedPaths,
+  onTogglePathSelect,
   onSelectFile,
 }) => {
   const [activePath, setActivePath] = useState<string>(
@@ -124,7 +128,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       {/* Main Diff Content Splitter */}
       <div className="flex-1 flex min-h-0">
         {/* Left Sidebar: File List */}
-        <div className="w-72 border-r border-slate-200 bg-slate-50/40 flex flex-col shrink-0">
+        <div className="w-80 border-r border-slate-200 bg-slate-50/40 flex flex-col shrink-0">
           <div className="p-2.5 border-b border-slate-200">
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -141,8 +145,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {filteredFiles.map(file => {
               const isSelected = (currentFile?.relativePath === file.relativePath);
+              const isChecked = selectedPaths ? selectedPaths.has(file.relativePath) : true;
+
               return (
-                <button
+                <div
                   key={file.relativePath}
                   onClick={() => {
                     setActivePath(file.relativePath);
@@ -155,6 +161,17 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
+                    {onTogglePathSelect && (
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={e => {
+                          e.stopPropagation();
+                          onTogglePathSelect(file.relativePath);
+                        }}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                      />
+                    )}
                     <FileCode className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-indigo-600' : 'text-slate-400'}`} />
                     <span className="truncate font-mono text-[11px]">{file.relativePath}</span>
                   </div>
@@ -170,7 +187,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   >
                     {file.status === 'added' ? '+ 新增' : file.status === 'modified' ? '~ 修改' : '- 删除'}
                   </span>
-                </button>
+                </div>
               );
             })}
 

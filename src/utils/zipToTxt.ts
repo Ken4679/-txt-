@@ -6,6 +6,7 @@ import {
   MAX_ZIP_MEMBERS,
   MAX_ZIP_UNCOMPRESSED_BYTES,
   MAX_ZIP_SINGLE_FILE_BYTES,
+  COMMON_IGNORE_FOLDERS,
 } from './constants';
 import {
   calculateSha256,
@@ -213,14 +214,198 @@ export interface ProcessZipOptions {
   includeBinary: boolean;
   filterIgnoredFolders?: boolean;
   ignoredFolderNames?: string[];
+  customIgnorePatterns?: string[];
   onProgress?: (current: number, total: number, currentFileName: string) => void;
+}
+
+export interface DirectFileInput {
+  relativePath: string;
+  file: File;
+}
+
+/**
+ * Process a list of direct files (e.g. from folder drop or webkitdirectory input)
+ */
+export async function processFolderFiles(
+  folderFiles: DirectFileInput[],
+  options: ProcessZipOptions,
+  rootDisplayName = 'project'
+): Promise<ProcessZipResult> {
+  const {
+    includeBinary,
+    filterIgnoredFolders = true,
+    ignoredFolderNames = COMMON_IGNORE_FOLDERS,
+    customIgnorePatterns = [],
+    onProgress,
+  } = options;
+
+  let ignoredCount = 0;
+  const validFiles: { normalizedPath: string; file: File }[] = [];
+
+  for (const item of folderFiles) {
+    if (isIgnoredMetadataPath(item.relativePath)) {
+      ignoredCount++;
+      continue;
+    }
+
+    const normalized = normalizeAiPath(item.relativePath);
+
+    if (filterIgnoredFolders && ignoredFolderNames.length > 0) {
+      const parts = normalized.split('/');
+      if (parts.some(p => ignoredFolderNames.includes(p.toLowerCase()))) {
+        ignoredCount++;
+        continue;
+      }
+    }
+
+    if (customIgnorePatterns.length > 0) {
+      const isCustomIgnored = customIgnorePatterns.some(pat => {
+        const p = pat.trim().toLowerCase();
+        return p && (normalized.toLowerCase().includes(p) || normalized.toLowerCase().endsWith(p));
+      });
+      if (isCustomIgnored) {
+        ignoredCount++;
+        continue;
+      }
+    }
+
+    validFiles.push({ normalizedPath: normalized, file: item.file });
+  }
+
+  if (validFiles.length === 0) {
+    throw new Error('所选文件夹中未找到有效的代码或文本文件。');
+  }
+
+  // Detect common root folder
+  let commonPrefix = '';
+  const firstParts = validFiles[0].normalizedPath.split('/');
+  if (firstParts.length > 1) {
+    const candidate = firstParts[0] + '/';
+    if (validFiles.every(f => f.normalizedPath.startsWith(candidate))) {
+      commonPrefix = candidate;
+    }
+  }
+
+  const effectiveRootName = rootDisplayName || (commonPrefix ? commonPrefix.replace(/\/$/, '') : 'project');
+
+  validFiles.sort((a, b) => {
+    const relA = commonPrefix ? a.normalizedPath.slice(commonPrefix.length) : a.normalizedPath;
+    const relB = commonPrefix ? b.normalizedPath.slice(commonPrefix.length) : b.normalizedPath;
+    return relA.toLowerCase().localeCompare(relB.toLowerCase());
+  });
+
+  const totalFiles = validFiles.length;
+  const entries: ZipFileEntry[] = [];
+  let totalLines = 0;
+  let textCount = 0;
+  let binaryCount = 0;
+
+  for (let i = 0; i < validFiles.length; i++) {
+    const { normalizedPath, file } = validFiles[i];
+    const relPath = commonPrefix ? normalizedPath.slice(commonPrefix.length) : normalizedPath;
+
+    if (onProgress) {
+      onProgress(i + 1, totalFiles, relPath);
+    }
+
+    const contentBuffer = await file.arrayBuffer();
+    const fileSize = contentBuffer.byteLength;
+
+    if (fileSize > MAX_ZIP_SINGLE_FILE_BYTES) {
+      throw new Error(`单文件过大：${relPath} (${humanSize(fileSize)})`);
+    }
+
+    const sha256 = await calculateSha256(contentBuffer);
+    const isBinary = isBinaryData(relPath, contentBuffer);
+
+    let textContent: string | undefined;
+    let base64Content: string | undefined;
+
+    if (isBinary) {
+      binaryCount++;
+      if (includeBinary) {
+        base64Content = arrayBufferToBase64(contentBuffer);
+      }
+    } else {
+      textCount++;
+      textContent = decodeText(contentBuffer);
+      const linesInFile = textContent.split(/\r\n|\r|\n/).length;
+      totalLines += linesInFile;
+    }
+
+    entries.push({
+      path: normalizedPath,
+      relativePath: relPath,
+      size: fileSize,
+      isBinary,
+      sha256,
+      content: textContent,
+      base64: base64Content,
+    });
+  }
+
+  const treeLines = buildDirectoryTree(
+    entries.map(e => e.relativePath),
+    effectiveRootName
+  );
+  const asciiTree = treeLines.join('\n');
+
+  const txtParts: string[] = [];
+  txtParts.push('================================================================================');
+  txtParts.push('ZIPIFY REPOSITORY CONTEXT EXPORT');
+  txtParts.push('================================================================================\n');
+  txtParts.push('DIRECTORY STRUCTURE:');
+  txtParts.push(asciiTree);
+  txtParts.push('\n================================================================================');
+  txtParts.push('REPOSITORY SOURCE CODE FILES');
+  txtParts.push('================================================================================\n');
+
+  for (const entry of entries) {
+    if (entry.isBinary) {
+      if (includeBinary && entry.base64) {
+        txtParts.push(`### FILE: ${entry.relativePath} [BASE64_BINARY]`);
+        txtParts.push('```base64');
+        txtParts.push(entry.base64);
+        txtParts.push('```\n');
+      } else {
+        txtParts.push(`### FILE: ${entry.relativePath} [BINARY FILE: ${humanSize(entry.size)}, SHA-256: ${entry.sha256}]\n`);
+      }
+    } else {
+      const lang = getFileLanguage(entry.relativePath);
+      txtParts.push(`### FILE: ${entry.relativePath}`);
+      txtParts.push(`\`\`\`${lang}`);
+      txtParts.push(entry.content ?? '');
+      txtParts.push('```\n');
+    }
+  }
+
+  const txtContent = txtParts.join('\n');
+  const estimatedTokens = estimateTokens(txtContent);
+
+  return {
+    txtContent,
+    asciiTree,
+    entries,
+    fileCount: entries.length,
+    textCount,
+    binaryCount,
+    totalLines,
+    estimatedTokens,
+    ignoredCount,
+  };
 }
 
 export async function processZipFile(
   file: File,
   options: ProcessZipOptions
 ): Promise<ProcessZipResult> {
-  const { includeBinary, filterIgnoredFolders = true, ignoredFolderNames = [], onProgress } = options;
+  const {
+    includeBinary,
+    filterIgnoredFolders = true,
+    ignoredFolderNames = COMMON_IGNORE_FOLDERS,
+    customIgnorePatterns = [],
+    onProgress,
+  } = options;
 
   if (file.size > MAX_ZIP_BYTES) {
     throw new Error(
@@ -257,6 +442,17 @@ export async function processZipFile(
     if (filterIgnoredFolders && ignoredFolderNames.length > 0) {
       const parts = normalized.split('/');
       if (parts.some(p => ignoredFolderNames.includes(p.toLowerCase()))) {
+        ignoredCount++;
+        continue;
+      }
+    }
+
+    if (customIgnorePatterns.length > 0) {
+      const isCustomIgnored = customIgnorePatterns.some(pat => {
+        const p = pat.trim().toLowerCase();
+        return p && (normalized.toLowerCase().includes(p) || normalized.toLowerCase().endsWith(p));
+      });
+      if (isCustomIgnored) {
         ignoredCount++;
         continue;
       }

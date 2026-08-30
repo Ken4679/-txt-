@@ -344,7 +344,19 @@ export const PatchPage: React.FC<PatchPageProps> = ({
               </div>
             </div>
 
-            <DiffViewer diffFiles={diffFiles} />
+            <DiffViewer
+              diffFiles={diffFiles}
+              selectedPaths={selectedFilePaths}
+              onTogglePathSelect={path => {
+                const next = new Set(selectedFilePaths);
+                if (next.has(path)) {
+                  next.delete(path);
+                } else {
+                  next.add(path);
+                }
+                setSelectedFilePaths(next);
+              }}
+            />
           </div>
         </div>
       )}

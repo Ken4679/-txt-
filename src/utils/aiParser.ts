@@ -18,12 +18,16 @@ const FILE_HEADER_PATTERNS = [
   /^\s*\*\*(?:FILE|File|FilePath|Path)\s*:\s*\*\*\s*[`"']?(.+?)[`"']?\s*$/i,
   // Markdown bold wrapper: **FILE: path** or **File: path**
   /^\s*\*\*(?:FILE|File|FilePath|Path)\s*:\s*[`"']?(.+?)[`"']?\*\*\s*$/i,
+  // XML/HTML style tags: <file path="src/main.ts"> or <file name="src/main.ts"> or <file>src/main.ts</file>
+  /^\s*<file(?:\s+name=|\s+path=)?\s*["']?([^>]+?)["']?\s*>(?:.*<\/file>)?\s*$/i,
+  // Comment filepath style: // filepath: src/main.ts or # filepath: src/main.ts
+  /^\s*(?:\/\/|#|\/\*|<!--)\s*(?:filepath|file_path|file)\s*:\s*[`"']?(.+?)[`"']?(?:\s*\*\/|\s*-->)?\s*$/i,
   // Code comment tags: // FILE: path, /* FILE: path */, <!-- FILE: path -->, # FILE: path
   /^\s*(?:\/\/|\/\*|<!--|#)\s*(?:FILE|File|FilePath)\s*:\s*[`"']?(.+?)[`"']?(?:\s*\*\/|\s*-->)?\s*$/i,
   // Bracketed tags: [FILE: path], [FILE] path, [File: path]
   /^\s*\[\s*(?:FILE|File|FilePath)(?:\s*:)?\s*[`"']?(.+?)[`"']?\s*\]\s*$/i,
-  // FilePath: path or File: path or Target File: path
-  /^\s*(?:FilePath|File Path|Target File|File)\s*:\s*[`"']?(.+?)[`"']?\s*$/i,
+  // FilePath: path or File: path or Target File: path or Changed File: path
+  /^\s*(?:FilePath|File Path|Target File|Changed File|Updated File|File)\s*:\s*[`"']?(.+?)[`"']?\s*$/i,
 ];
 
 // Inline fence pattern: ```python:src/main.py or ```ts file="src/app.ts" or ```tsx path=src/app.tsx
