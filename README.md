@@ -226,6 +226,57 @@ git push origin v3.1.0
 
 ---
 
+## 🗑️ 彻底卸载与一键清理 (Uninstall & Clean up)
+
+本工具遵循 **100% 绿色便携 (Portable) 与隐私安全规范**，不注入任何系统服务、不写入 Windows 注册表、不产生常驻后台进程。
+
+### 1. 桌面端单文件客户端 (`ZipToTxt.exe`) 一键卸载
+- **最简单方法**：直接在资源管理器中选中 `ZipToTxt.exe`，按 `Shift + Delete` 永久删除即可，无任何安装残留。
+- **清理 PyInstaller 运行时解压临时缓存（可选）**：
+  在 Windows PowerShell 中执行以下单行命令即可彻底清除临时运行文件：
+  ```powershell
+  Remove-Item -Path "$env:TEMP\_MEI*" -Recurse -Force -ErrorAction SilentlyContinue
+  ```
+
+---
+
+### 2. 开发者源码与编译产物一键清理
+
+如果您克隆了源码并进行过本地运行或编译，可通过以下命令一键清理所有依赖库（`node_modules`）、打包产物（`dist` / `build`）与 Python 字节码：
+
+#### Windows (PowerShell 一键清理脚本)
+```powershell
+# 清理前端依赖与编译输出
+Remove-Item -Recurse -Force dist, build, node_modules, .vite -ErrorAction SilentlyContinue
+
+# 清理 Python 编译字节码与打包规格文件
+Get-ChildItem -Path . -Include __pycache__, *.pyc, *.spec -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+Write-Host "✅ ZipToTxt 本地编译缓存与依赖已全部清理完毕！" -ForegroundColor Green
+```
+
+#### Linux / macOS (Bash 一键清理命令)
+```bash
+# 一键清理所有打包产物与缓存
+rm -rf dist/ build/ node_modules/ .vite/ *.spec
+find . -type d -name "__pycache__" -exec rm -rf {} +
+find . -type f -name "*.pyc" -delete
+
+echo "✅ ZipToTxt 本地编译缓存与依赖已全部清理完毕！"
+```
+
+#### 彻底删除整个项目
+如需彻底从硬盘移除整个项目，直接删除项目根目录即可：
+```bash
+# Windows PowerShell (退出当前目录后删除)
+cd .. ; Remove-Item -Path "ZipToTxt" -Recurse -Force
+
+# Linux / macOS
+cd .. && rm -rf ZipToTxt
+```
+
+---
+
 ## 📄 开源许可证
 
 本项目基于 [MIT License](LICENSE) 协议开源。欢迎提交 Issue 或 Pull Request！
