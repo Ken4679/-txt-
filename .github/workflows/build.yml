@@ -34,6 +34,18 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller==6.22.2
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify Web Frontend Build
+        shell: pwsh
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
       - name: Syntax check
         shell: pwsh
         run: |

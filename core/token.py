@@ -20,24 +20,24 @@ def estimate_tokens_detailed(text: str) -> Dict[str, Any]:
     Returns a dictionary with model token estimations, text stats, and context window percentages.
     """
     if not text:
-        return {
-            "estimated_tokens": 0,
-            "gpt4o_tokens": 0,
-            "claude_tokens": 0,
-            "gemini_tokens": 0,
-            "deepseek_tokens": 0,
-            "characters": 0,
-            "lines": 0,
-            "words": 0,
-            "chinese_chars": 0,
-            "punctuation_chars": 0,
-            "context_usage": {
+        return TokenStats(
+            estimated_tokens=0,
+            gpt4o_tokens=0,
+            claude_tokens=0,
+            gemini_tokens=0,
+            deepseek_tokens=0,
+            characters=0,
+            lines=0,
+            words=0,
+            chinese_chars=0,
+            punctuation_chars=0,
+            context_usage={
                 "gpt128k": 0.0,
                 "claude200k": 0.0,
                 "gemini1m": 0.0,
                 "deepseek128k": 0.0,
             }
-        }
+        )
 
     characters = len(text)
     line_array = text.splitlines()
@@ -128,21 +128,21 @@ def estimate_tokens_detailed(text: str) -> Dict[str, Any]:
     deepseek_tokens = int(round(raw_tokens * 0.92))
     estimated_tokens = gpt4o_tokens
 
-    return {
-        "estimated_tokens": estimated_tokens,
-        "gpt4o_tokens": gpt4o_tokens,
-        "claude_tokens": claude_tokens,
-        "gemini_tokens": gemini_tokens,
-        "deepseek_tokens": deepseek_tokens,
-        "characters": characters,
-        "lines": lines,
-        "words": word_count,
-        "chinese_chars": chinese_count,
-        "punctuation_chars": punctuation_count,
-        "context_usage": {
+    return TokenStats(
+        estimated_tokens=estimated_tokens,
+        gpt4o_tokens=gpt4o_tokens,
+        claude_tokens=claude_tokens,
+        gemini_tokens=gemini_tokens,
+        deepseek_tokens=deepseek_tokens,
+        characters=characters,
+        lines=lines,
+        words=word_count,
+        chinese_chars=chinese_count,
+        punctuation_chars=punctuation_count,
+        context_usage={
             "gpt128k": round((gpt4o_tokens / 128000.0) * 100.0, 2),
             "claude200k": round((claude_tokens / 200000.0) * 100.0, 2),
             "gemini1m": round((gemini_tokens / 1000000.0) * 100.0, 2),
             "deepseek128k": round((deepseek_tokens / 128000.0) * 100.0, 2),
         }
-    }
+    )

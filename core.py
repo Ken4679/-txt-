@@ -207,18 +207,19 @@ def main():
                 raw_text = f.read()
 
         try:
-            parse_result = parse_ai_output(raw_text)
-            print(f"[*] Parsed {len(parse_result.blocks)} code blocks.", file=sys.stderr)
+            files_dict, warnings, auto_closed_count = parse_ai_output(raw_text)
+            print(f"[*] Parsed {len(files_dict)} code files from AI response.", file=sys.stderr)
 
-            if parse_result.warnings:
-                for w in parse_result.warnings:
+            if warnings:
+                for w in warnings:
                     print(f"    [!] Warning: {w}", file=sys.stderr)
 
-            if not parse_result.blocks:
+            if auto_closed_count > 0:
+                print(f"    [!] Note: {auto_closed_count} code blocks were auto-healed after being truncated by LLM token limits.", file=sys.stderr)
+
+            if not files_dict:
                 print("[-] No valid file code blocks found in input.", file=sys.stderr)
                 sys.exit(1)
-
-            files_dict = {b.relative_path: b.content for b in parse_result.blocks}
 
             if args.output_zip:
                 create_patch_zip(files_dict, allow_sensitive=args.allow_sensitive, output_path=args.output_zip)

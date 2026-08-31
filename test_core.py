@@ -298,6 +298,39 @@ def step2(): pass
     allowed_patch_bytes = create_patch_zip(sensitive_patch, allow_sensitive=True)
     assert len(allowed_patch_bytes) > 0
 
+    # =========================================================================
+    # 8. DIRECTORY SCANNING SUPPORT & TOKENSTATS CONSISTENCY
+    # =========================================================================
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="ziptotxt_test_dir_") as tmp_dir:
+        os.makedirs(os.path.join(tmp_dir, "src"), exist_ok=True)
+        os.makedirs(os.path.join(tmp_dir, "node_modules", "pkg"), exist_ok=True)
+        
+        with open(os.path.join(tmp_dir, "src", "index.ts"), "w", encoding="utf-8") as f:
+            f.write("console.log('Dir scan working');\n")
+        with open(os.path.join(tmp_dir, "node_modules", "pkg", "index.js"), "w", encoding="utf-8") as f:
+            f.write("console.log('Should be ignored');\n")
+
+        dir_txt, dir_tree, dir_meta = scan_and_format_repo(
+            tmp_dir,
+            filter_ignored_folders=True,
+            ignored_folders=["node_modules"]
+        )
+        assert "src/index.ts" in dir_txt
+        assert "Dir scan working" in dir_txt
+        assert dir_meta["file_count"] == 1
+        assert dir_meta["ignored_count"] >= 1
+        assert "node_modules" not in dir_tree
+
+    # TokenStats property and dict access compatibility
+    sample_stats = estimate_tokens_detailed("function test() { return 42; }")
+    assert sample_stats.char_count == sample_stats.characters
+    assert sample_stats.line_count == sample_stats.lines
+    assert sample_stats.word_count == sample_stats.words
+    assert sample_stats["gpt4o_tokens"] == sample_stats.gpt4o_tokens
+    assert sample_stats["claude_tokens"] == sample_stats.claude_tokens
+    assert sample_stats.get("gemini_tokens") == sample_stats.gemini_tokens
+
     print("All ZipToTxt Python core tests passed successfully!")
 
 if __name__ == '__main__':

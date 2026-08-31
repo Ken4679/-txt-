@@ -142,13 +142,148 @@ def scan_and_format_repo(
     progress_callback: Optional[Callable[[int, int, str], None]] = None
 ) -> Tuple[str, str, Dict[str, Any]]:
     """
-    Scans a ZIP archive and produces structured AI context text with ASCII directory tree,
-    sha256 digests, and metadata.
+    Scans a ZIP archive or a directory folder, producing structured AI context text
+    with ASCII directory tree, sha256 digests, and token estimations.
     Returns: (formatted_txt, ascii_tree, metadata_dict)
     """
     if ignored_folders is None:
         ignored_folders = COMMON_IGNORE_FOLDERS
+    ignored_folders_lower = set(f.lower() for f in ignored_folders)
 
+    # 1. Directory scanning mode
+    if isinstance(zip_path_or_bytes, str) and os.path.isdir(zip_path_or_bytes):
+        root_dir = os.path.abspath(zip_path_or_bytes)
+        root_name = os.path.basename(root_dir) or "project"
+
+        valid_files: List[Tuple[str, str]] = [] # (abs_path, rel_path)
+        ignored_count = 0
+
+        for root, dirs, files in os.walk(root_dir):
+            # In-place directory filtering
+            if filter_ignored_folders:
+                pruned = [d for d in dirs if d.lower() in ignored_folders_lower or d.startswith('.')]
+                ignored_count += len(pruned)
+                dirs[:] = [d for d in dirs if d.lower() not in ignored_folders_lower and not d.startswith('.')]
+
+            for fname in files:
+                if is_ignored_metadata_path(fname):
+                    ignored_count += 1
+                    continue
+                abs_fpath = os.path.join(root, fname)
+                rel_fpath = os.path.relpath(abs_fpath, root_dir).replace('\\', '/')
+                try:
+                    norm_path = normalize_ai_path(rel_fpath)
+                except SecurityError:
+                    ignored_count += 1
+                    continue
+
+                if filter_ignored_folders:
+                    parts = norm_path.split('/')
+                    if any(p.lower() in ignored_folders_lower for p in parts):
+                        ignored_count += 1
+                        continue
+
+                valid_files.append((abs_fpath, norm_path))
+
+        if not valid_files:
+            raise ValueError(f"No valid source code files found in directory: {root_dir}")
+
+        if len(valid_files) > MAX_ZIP_MEMBERS:
+            raise SecurityError(f"Directory file count ({len(valid_files)}) exceeds maximum limit {MAX_ZIP_MEMBERS}")
+
+        valid_files.sort(key=lambda x: x[1].lower())
+        total_files = len(valid_files)
+        entries: List[ZipFileEntry] = []
+        text_count = 0
+        binary_count = 0
+        total_lines = 0
+        total_uncompressed = 0
+
+        for idx, (abs_fpath, rel_path) in enumerate(valid_files):
+            if progress_callback:
+                progress_callback(idx + 1, total_files, rel_path)
+
+            file_size = os.path.getsize(abs_fpath)
+            if file_size > MAX_ZIP_SINGLE_FILE_BYTES:
+                raise SecurityError(f"File {rel_path} size ({human_size(file_size)}) exceeds limit {human_size(MAX_ZIP_SINGLE_FILE_BYTES)}")
+
+            total_uncompressed += file_size
+            if total_uncompressed > MAX_ZIP_UNCOMPRESSED_BYTES:
+                raise SecurityError(f"Total uncompressed directory size exceeds limit {human_size(MAX_ZIP_UNCOMPRESSED_BYTES)}")
+
+            with open(abs_fpath, 'rb') as f:
+                raw_bytes = f.read()
+
+            sha256 = calculate_sha256(raw_bytes)
+            is_bin = is_binary_data(rel_path, raw_bytes)
+
+            text_content: Optional[str] = None
+            b64_content: Optional[str] = None
+
+            if is_bin:
+                binary_count += 1
+                if include_binary:
+                    b64_content = base64.b64encode(raw_bytes).decode('ascii')
+            else:
+                text_count += 1
+                text_content = decode_text(raw_bytes)
+                total_lines += len(text_content.splitlines())
+
+            entries.append(ZipFileEntry(
+                path=rel_path,
+                relative_path=rel_path,
+                size=file_size,
+                is_binary=is_bin,
+                sha256=sha256,
+                content=text_content,
+                base64=b64_content
+            ))
+
+        ascii_tree = generate_ascii_tree([e.relative_path for e in entries], root_name)
+
+        txt_parts = [
+            "=" * 80,
+            "ZIPIFY REPOSITORY CONTEXT EXPORT",
+            "=" * 80 + "\n",
+            "DIRECTORY STRUCTURE:",
+            ascii_tree,
+            "\n" + "=" * 80,
+            "REPOSITORY SOURCE CODE FILES",
+            "=" * 80 + "\n"
+        ]
+
+        for e in entries:
+            if e.is_binary:
+                if include_binary and e.base64:
+                    txt_parts.append(f"### FILE: {e.relative_path} [BASE64_BINARY]")
+                    txt_parts.append("```base64")
+                    txt_parts.append(e.base64)
+                    txt_parts.append("```\n")
+                else:
+                    txt_parts.append(f"### FILE: {e.relative_path} [BINARY FILE: {human_size(e.size)}, SHA-256: {e.sha256}]\n")
+            else:
+                lang = get_file_language(e.relative_path)
+                txt_parts.append(f"### FILE: {e.relative_path}")
+                txt_parts.append(f"```{lang}")
+                txt_parts.append(e.content or "")
+                txt_parts.append("```\n")
+
+        txt_content = "\n".join(txt_parts)
+        est_tokens = estimate_tokens(txt_content)
+
+        metadata = {
+            "file_count": len(entries),
+            "text_count": text_count,
+            "binary_count": binary_count,
+            "total_lines": total_lines,
+            "estimated_tokens": est_tokens,
+            "ignored_count": ignored_count,
+            "root_name": root_name,
+        }
+
+        return txt_content, ascii_tree, metadata
+
+    # 2. ZIP Archive scanning mode
     if isinstance(zip_path_or_bytes, (bytes, bytearray)):
         zf = zipfile.ZipFile(io.BytesIO(zip_path_or_bytes), 'r')
         archive_name = "project"

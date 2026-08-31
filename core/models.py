@@ -55,6 +55,39 @@ class TokenStats:
     punctuation_chars: int
     context_usage: Dict[str, float] = field(default_factory=dict)
 
+    # Aliases for flexible consumer compatibility
+    @property
+    def char_count(self) -> int:
+        return self.characters
+
+    @property
+    def line_count(self) -> int:
+        return self.lines
+
+    @property
+    def word_count(self) -> int:
+        return self.words
+
+    def __getitem__(self, key: str) -> Any:
+        if hasattr(self, key):
+            return getattr(self, key)
+        if key == "char_count":
+            return self.characters
+        if key == "line_count":
+            return self.lines
+        if key == "word_count":
+            return self.words
+        raise KeyError(key)
+
+    def __contains__(self, key: str) -> bool:
+        return hasattr(self, key) or key in ("char_count", "line_count", "word_count")
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except (KeyError, AttributeError):
+            return default
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "estimated_tokens": self.estimated_tokens,

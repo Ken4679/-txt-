@@ -410,40 +410,30 @@ class ExportWorker(QThread):
 
     def run(self):
         start_time = time.time()
-        temp_dir = tempfile.mkdtemp(prefix="ziptotxt_export_")
         try:
-            self.progress_signal.emit("正在安全解压 ZIP 仓库...")
-            extract_dir, extracted_files = safe_extract_zip(self.zip_path, temp_dir)
-
-            self.progress_signal.emit(f"正在扫描并构建代码树 (共 {len(extracted_files)} 个文件)...")
-            txt_content, files_info = scan_and_format_repo(
-                extract_dir,
-                base64_binaries=self.base64_binaries,
-                exclude_patterns=self.exclude_patterns
+            self.progress_signal.emit("正在扫描仓库文件结构与代码...")
+            txt_content, ascii_tree, metadata = scan_and_format_repo(
+                self.zip_path,
+                include_binary=self.base64_binaries,
+                filter_ignored_folders=True,
+                ignored_folders=self.exclude_patterns if self.exclude_patterns else None
             )
 
-            ascii_tree = generate_ascii_tree(extract_dir, exclude_patterns=self.exclude_patterns)
-            
             # Combine custom prompt template with code context
-            full_prompt_txt = f"{self.prompt_template.strip()}\n\n{txt_content}"
+            full_prompt_txt = f"{self.prompt_template.strip()}\n\n{txt_content}" if self.prompt_template.strip() else txt_content
 
             # Accurate multi-model token estimation
             token_stats = estimate_tokens_detailed(full_prompt_txt)
             elapsed = time.time() - start_time
 
-            total_lines = sum(f.get('lines', 0) for f in files_info if f.get('is_text'))
-            text_count = sum(1 for f in files_info if f.get('is_text'))
-            bin_count = len(files_info) - text_count
-
             result = {
                 "txt_content": full_prompt_txt,
                 "raw_repo_content": txt_content,
                 "ascii_tree": ascii_tree,
-                "files_info": files_info,
-                "total_files": len(files_info),
-                "text_count": text_count,
-                "bin_count": bin_count,
-                "total_lines": total_lines,
+                "total_files": metadata.get("file_count", 0),
+                "text_count": metadata.get("text_count", 0),
+                "bin_count": metadata.get("binary_count", 0),
+                "total_lines": metadata.get("total_lines", 0),
                 "token_stats": token_stats,
                 "elapsed": elapsed,
                 "source_zip": self.zip_path
@@ -452,9 +442,6 @@ class ExportWorker(QThread):
 
         except Exception as e:
             self.error_signal.emit(str(e))
-        finally:
-            import shutil
-            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 class ImportWorker(QThread):
@@ -467,8 +454,12 @@ class ImportWorker(QThread):
 
     def run(self):
         try:
-            parsed = parse_ai_output(self.raw_markdown)
-            self.finished_signal.emit(parsed)
+            files_dict, warnings, auto_closed_count = parse_ai_output(self.raw_markdown)
+            self.finished_signal.emit({
+                "files": files_dict,
+                "warnings": warnings,
+                "auto_closed_count": auto_closed_count
+            })
         except Exception as e:
             self.error_signal.emit(str(e))
 
@@ -1067,7 +1058,7 @@ class ZipToTxtMainWindow(QMainWindow):
         save_path, _ = QFileDialog.getSaveFileName(self, "保存补丁压缩包", "patch.zip", "ZIP 压缩文件 (*.zip)")
         if save_path:
             try:
-                create_patch_zip(self.last_parsed_files["files"], save_path)
+                create_patch_zip(self.last_parsed_files["files"], output_path=save_path)
                 self.status_bar.showMessage(f"补丁已生成: {save_path}")
                 QMessageBox.information(
                     self, "补丁打包成功",
